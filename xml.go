@@ -35,16 +35,14 @@ func (xm *XMLMasker) Mask(r io.Reader, w io.Writer) error {
 		case xml.CharData:
 			trimmedData := strings.TrimSpace(string(se))
 			if len(trimmedData) > 0 {
+				// Only mask and encode if there is non-whitespace content.
 				maskedValue := xm.masker.Mask(trimmedData)
 				maskedString := fmt.Sprintf("%v", maskedValue)
 				if err := encoder.EncodeToken(xml.CharData(maskedString)); err != nil {
 					return err
 				}
-			} else {
-				if err := encoder.EncodeToken(se); err != nil {
-					return err
-				}
 			}
+			// Do nothing for whitespace-only nodes; the encoder will handle indentation.
 		default:
 			if err := encoder.EncodeToken(token); err != nil {
 				return err

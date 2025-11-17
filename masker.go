@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"hash/fnv"
+	"math"
 	"math/rand"
 	"regexp"
 	"strconv"
@@ -25,8 +26,11 @@ func NewConsistentMasker() Masker {
 
 type consistentMasker struct{}
 
-// We keep a specific date regex because govalidator.IsDate is too broad for our desired YYYY-MM-DD format.
-var dateRegex = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
+// We keep specific regexes for formats where govalidator is too strict or broad.
+var (
+	dateRegex = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
+	ssnRegex  = regexp.MustCompile(`^\d{3}-\d{2,3}-\d{4}$`) // Catches XXX-XX-XXXX and XXX-XXX-XXXX
+)
 
 func (m *consistentMasker) Mask(value interface{}) interface{} {
 	if value == nil {
@@ -38,7 +42,7 @@ func (m *consistentMasker) Mask(value interface{}) interface{} {
 		if govalidator.IsCreditCard(v) {
 			return maskCreditCard(v)
 		}
-		if govalidator.IsSSN(v) {
+		if ssnRegex.MatchString(v) {
 			return maskSSN(v)
 		}
 		if govalidator.IsRFC3339(v) {
@@ -53,13 +57,12 @@ func (m *consistentMasker) Mask(value interface{}) interface{} {
 		if dateRegex.MatchString(v) {
 			return maskDate(v)
 		}
-		if govalidator.IsNumeric(v) {
-			if strings.Contains(v, ".") {
-				if f, err := strconv.ParseFloat(v, 64); err == nil {
-					return fmt.Sprintf("%.2f", maskFloat64(f))
-				}
-			} else {
-				return maskIntString(v)
+		if govalidator.IsInt(v) {
+			return maskIntString(v)
+		}
+		if govalidator.IsFloat(v) {
+			if f, err := strconv.ParseFloat(v, 64); err == nil {
+				return fmt.Sprintf("%.2f", maskFloat64(f))
 			}
 		}
 		return maskGenericString(v)
@@ -96,15 +99,13 @@ func maskTimestamp(s string) string {
 	max := time.Date(2023, 1, 0, 0, 0, 0, 0, time.UTC).Unix()
 	delta := max - min
 	sec := r.Int63n(delta) + min
-	return time.Unix(sec, 0).Format(time.RFC3339)
+	return time.Unix(sec, 0).UTC().Format(time.RFC3339)
 }
 
 func maskDate(s string) string {
 	r := createSeededRand(s)
-	// Years 1970-2019
 	year := r.Intn(50) + 1970
 	month := r.Intn(12) + 1
-	// Keep it simple, always valid
 	day := r.Intn(28) + 1
 	return fmt.Sprintf("%04d-%02d-%02d", year, month, day)
 }
@@ -141,7 +142,8 @@ func maskFloat64(f float64) float64 {
 	s := fmt.Sprintf("%f", f)
 	hash := sha256.Sum256(append([]byte(s), consistentSalt...))
 	r := rand.New(rand.NewSource(int64(hash[0])<<56 | int64(hash[1])<<48 | int64(hash[2])<<40 | int64(hash[3])<<32 | int64(hash[4])<<24 | int64(hash[5])<<16 | int64(hash[6])<<8 | int64(hash[7])))
-	return r.Float64() * 1000
+	val := r.Float64() * 1000
+	return math.Round(val*100) / 100
 }
 
 func maskBool(b bool) bool {

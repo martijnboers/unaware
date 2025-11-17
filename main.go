@@ -2,14 +2,13 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"encoding/xml"
 	"flag"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
-
-	"github.com/asaskevich/govalidator"
 )
 
 func main() {
@@ -47,19 +46,32 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Validate the input based on the format flag.
+	// Validate the input strictly, ensuring no trailing data exists.
 	switch *format {
 	case "json":
-		if !govalidator.IsJSON(string(inputBytes)) {
-			fmt.Fprintf(os.Stderr, "Error: Input is not valid JSON.\n")
+		// Use a decoder to ensure the input is a single, valid JSON entity.
+		dec := json.NewDecoder(bytes.NewReader(inputBytes))
+		if err := dec.Decode(&struct{}{}); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: Input is not valid JSON. (%v)\n", err)
+			os.Exit(1)
+		}
+		if dec.More() {
+			fmt.Fprintf(os.Stderr, "Error: Input contains multiple JSON objects or trailing data.\n")
 			os.Exit(1)
 		}
 	case "xml":
-		// The standard library's decoder is strict. Unmarshaling into a nil
-		// interface pointer is a common way to check for well-formedness.
-		if err := xml.Unmarshal(inputBytes, new(interface{})); err != nil {
-			fmt.Fprintf(os.Stderr, "Error: Input is not valid XML.\n")
-			os.Exit(1)
+		// The XML decoder is inherently strict and will find syntax errors.
+		// We also need to check for trailing data manually.
+		dec := xml.NewDecoder(bytes.NewReader(inputBytes))
+		for {
+			_, err := dec.Token()
+			if err == io.EOF {
+				break // Valid end of document
+			}
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error: Input is not valid XML. (%v)\n", err)
+				os.Exit(1)
+			}
 		}
 	default:
 		fmt.Fprintf(os.Stderr, "Unsupported format: %s\n", *format)
