@@ -2,27 +2,31 @@ package main
 
 import (
 	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
+	"hash/fnv"
 	"math/rand"
+	"regexp"
 	"strconv"
+	"strings"
 	"time"
+
+	"github.com/asaskevich/govalidator"
 )
 
-// Masker is the interface that defines the masking behavior.
 type Masker interface {
 	Mask(value interface{}) interface{}
 }
 
-// consistentSalt is used to make the hashing consistent.
 var consistentSalt = []byte("unaware")
 
-// NewConsistentMasker creates a new masker that consistently masks values.
 func NewConsistentMasker() Masker {
 	return &consistentMasker{}
 }
 
 type consistentMasker struct{}
+
+// We keep a specific date regex because govalidator.IsDate is too broad for our desired YYYY-MM-DD format.
+var dateRegex = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
 
 func (m *consistentMasker) Mask(value interface{}) interface{} {
 	if value == nil {
@@ -31,15 +35,34 @@ func (m *consistentMasker) Mask(value interface{}) interface{} {
 
 	switch v := value.(type) {
 	case string:
-		// To ensure consistency between formats (e.g. XML vs JSON),
-		// we try to parse the string as a more specific type.
-		if f, err := strconv.ParseFloat(v, 64); err == nil {
-			return maskFloat64(f)
+		if govalidator.IsCreditCard(v) {
+			return maskCreditCard(v)
 		}
-		if b, err := strconv.ParseBool(v); err == nil {
-			return maskBool(b)
+		if govalidator.IsSSN(v) {
+			return maskSSN(v)
 		}
-		return maskString(v)
+		if govalidator.IsRFC3339(v) {
+			return maskTimestamp(v)
+		}
+		if govalidator.IsEmail(v) {
+			return maskEmail(v)
+		}
+		if govalidator.IsIP(v) {
+			return maskIP(v)
+		}
+		if dateRegex.MatchString(v) {
+			return maskDate(v)
+		}
+		if govalidator.IsNumeric(v) {
+			if strings.Contains(v, ".") {
+				if f, err := strconv.ParseFloat(v, 64); err == nil {
+					return fmt.Sprintf("%.2f", maskFloat64(f))
+				}
+			} else {
+				return maskIntString(v)
+			}
+		}
+		return maskGenericString(v)
 	case float64:
 		return maskFloat64(v)
 	case bool:
@@ -49,29 +72,84 @@ func (m *consistentMasker) Mask(value interface{}) interface{} {
 	}
 }
 
-func maskString(s string) string {
-	hash := sha256.Sum256(append([]byte(s), consistentSalt...))
-	return hex.EncodeToString(hash[:])
+func createSeededRand(s string) *rand.Rand {
+	hasher := fnv.New64a()
+	hasher.Write([]byte(s))
+	hasher.Write(consistentSalt)
+	seed := hasher.Sum64()
+	return rand.New(rand.NewSource(int64(seed)))
+}
+
+func maskCreditCard(s string) string {
+	r := createSeededRand(s)
+	return fmt.Sprintf("4%03d%04d%04d%04d", r.Intn(1000), r.Intn(10000), r.Intn(10000), r.Intn(10000))
+}
+
+func maskSSN(s string) string {
+	r := createSeededRand(s)
+	return fmt.Sprintf("%03d-%02d-%04d", r.Intn(900)+100, r.Intn(100), r.Intn(10000))
+}
+
+func maskTimestamp(s string) string {
+	r := createSeededRand(s)
+	min := time.Date(1990, 1, 0, 0, 0, 0, 0, time.UTC).Unix()
+	max := time.Date(2023, 1, 0, 0, 0, 0, 0, time.UTC).Unix()
+	delta := max - min
+	sec := r.Int63n(delta) + min
+	return time.Unix(sec, 0).Format(time.RFC3339)
+}
+
+func maskDate(s string) string {
+	r := createSeededRand(s)
+	// Years 1970-2019
+	year := r.Intn(50) + 1970
+	month := r.Intn(12) + 1
+	// Keep it simple, always valid
+	day := r.Intn(28) + 1
+	return fmt.Sprintf("%04d-%02d-%02d", year, month, day)
+}
+
+func maskEmail(s string) string {
+	r := createSeededRand(s)
+	user := fakeWords[r.Intn(len(fakeWords))]
+	domain := fakeWords[r.Intn(len(fakeWords))]
+	tld := fakeTLDs[r.Intn(len(fakeTLDs))]
+	return fmt.Sprintf("%s@%s.%s", user, domain, tld)
+}
+
+func maskIP(s string) string {
+	r := createSeededRand(s)
+	return fmt.Sprintf("%d.%d.%d.%d", r.Intn(256), r.Intn(256), r.Intn(256), r.Intn(256))
+}
+
+func maskIntString(s string) string {
+	r := createSeededRand(s)
+	digits := "0123456789"
+	var builder strings.Builder
+	for i := 0; i < len(s); i++ {
+		builder.WriteByte(digits[r.Intn(len(digits))])
+	}
+	return builder.String()
+}
+
+func maskGenericString(s string) string {
+	r := createSeededRand(s)
+	return fakeWords[r.Intn(len(fakeWords))]
 }
 
 func maskFloat64(f float64) float64 {
 	s := fmt.Sprintf("%f", f)
 	hash := sha256.Sum256(append([]byte(s), consistentSalt...))
-	// Use the first 8 bytes of the hash to create a new float.
-	// This is not guaranteed to be in the same range, but it's a simple way to get a consistent random float.
-	// A more sophisticated approach might be needed for specific requirements.
 	r := rand.New(rand.NewSource(int64(hash[0])<<56 | int64(hash[1])<<48 | int64(hash[2])<<40 | int64(hash[3])<<32 | int64(hash[4])<<24 | int64(hash[5])<<16 | int64(hash[6])<<8 | int64(hash[7])))
-	return r.Float64() * 1000 // Scale it to a reasonable number
+	return r.Float64() * 1000
 }
 
 func maskBool(b bool) bool {
-	// Simple approach: flip the boolean based on a hash.
 	s := strconv.FormatBool(b)
 	hash := sha256.Sum256(append([]byte(s), consistentSalt...))
 	return hash[0]%2 == 0
 }
 
-// NewRandomMasker creates a new masker that randomly masks values.
 func NewRandomMasker() Masker {
 	return &randomMasker{
 		rand: rand.New(rand.NewSource(time.Now().UnixNano())),
@@ -107,3 +185,14 @@ func (m *randomMasker) randomString(length int) string {
 	}
 	return string(b)
 }
+
+var fakeWords = []string{
+	"alpha", "bravo", "charlie", "delta", "echo", "foxtrot", "golf",
+	"hotel", "india", "juliett", "kilo", "lima", "mike", "november",
+	"oscar", "papa", "quebec", "romeo", "sierra", "tango", "uniform",
+	"victor", "whiskey", "xray", "yankee", "zulu", "red", "green", "blue",
+	"yellow", "purple", "orange", "silver", "gold", "mercury", "venus",
+	"earth", "mars", "jupiter", "saturn", "uranus", "neptune", "pluto",
+}
+
+var fakeTLDs = []string{"com", "net", "org", "io", "dev", "co", "xyz"}

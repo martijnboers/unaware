@@ -1,11 +1,15 @@
 package main
 
 import (
+	"bytes"
+	"encoding/xml"
 	"flag"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+
+	"github.com/asaskevich/govalidator"
 )
 
 func main() {
@@ -36,6 +40,33 @@ func main() {
 		reader = f
 	}
 
+	// Read all input into a buffer so we can validate it before masking.
+	inputBytes, err := io.ReadAll(reader)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error reading input: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Validate the input based on the format flag.
+	switch *format {
+	case "json":
+		if !govalidator.IsJSON(string(inputBytes)) {
+			fmt.Fprintf(os.Stderr, "Error: Input is not valid JSON.\n")
+			os.Exit(1)
+		}
+	case "xml":
+		// The standard library's decoder is strict. Unmarshaling into a nil
+		// interface pointer is a common way to check for well-formedness.
+		if err := xml.Unmarshal(inputBytes, new(interface{})); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: Input is not valid XML.\n")
+			os.Exit(1)
+		}
+	default:
+		fmt.Fprintf(os.Stderr, "Unsupported format: %s\n", *format)
+		flag.Usage()
+		os.Exit(1)
+	}
+
 	// Get the output writer
 	var writer io.Writer = os.Stdout
 	if *outputFile != "" {
@@ -48,24 +79,24 @@ func main() {
 		writer = f
 	}
 
+	// Create a new reader from our validated byte slice for the masker.
+	inputReader := bytes.NewReader(inputBytes)
+
 	// Process the data based on the format
 	switch *format {
 	case "json":
 		jsonMasker := NewJSONMasker(m)
-		if err := jsonMasker.Mask(reader, writer); err != nil {
+		if err := jsonMasker.Mask(inputReader, writer); err != nil {
+			// This error should ideally not happen now, but we keep it for safety.
 			fmt.Fprintf(os.Stderr, "Error masking JSON: %v\n", err)
 			os.Exit(1)
 		}
 	case "xml":
 		xmlMasker := NewXMLMasker(m)
-		if err := xmlMasker.Mask(reader, writer); err != nil {
+		if err := xmlMasker.Mask(inputReader, writer); err != nil {
 			fmt.Fprintf(os.Stderr, "Error masking XML: %v\n", err)
 			os.Exit(1)
 		}
-	default:
-		fmt.Fprintf(os.Stderr, "Unsupported format: %s\n", *format)
-		flag.Usage()
-		os.Exit(1)
 	}
 
 	if *outputFile != "" {

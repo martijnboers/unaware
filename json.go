@@ -5,19 +5,16 @@ import (
 	"io"
 )
 
-// JSONMasker masks a JSON stream.
 type JSONMasker struct {
 	masker Masker
 }
 
-// NewJSONMasker creates a new JSONMasker.
 func NewJSONMasker(masker Masker) *JSONMasker {
 	return &JSONMasker{
 		masker: masker,
 	}
 }
 
-// Mask masks the JSON stream from the reader and writes it to the writer.
 func (jm *JSONMasker) Mask(r io.Reader, w io.Writer) error {
 	decoder := json.NewDecoder(r)
 	encoder := json.NewEncoder(w)
