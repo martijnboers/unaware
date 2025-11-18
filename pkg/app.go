@@ -19,7 +19,7 @@ type App struct {
 	Out       io.Writer
 }
 
-func NewApp(format string, masker Masker) (*App, error) {
+func NewApp(format string, masker Method) (*App, error) {
 	var processor Processor
 	switch format {
 	case "json":

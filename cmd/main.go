@@ -22,16 +22,16 @@ func main() {
 	randomHash := flag.Bool("random-hash", false, "Hash data using random salt")
 	flag.Parse()
 
-	var masker pkg.Masker
+	var masker pkg.Method
 	if *randomHash {
 		salt := make([]byte, 32)
 		if _, err := rand.Read(salt); err != nil {
 			fmt.Fprintln(os.Stderr, "failed to generate random salt:", err)
 			os.Exit(1)
 		}
-		masker = pkg.NewSaltedMasker(salt)
+		masker = pkg.NewSaltedMethod(salt)
 	} else {
-		masker = pkg.NewRandomMasker()
+		masker = pkg.NewRandomMethod()
 	}
 
 	app, err := pkg.NewApp(*format, masker)

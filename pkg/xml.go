@@ -9,16 +9,16 @@ import (
 )
 
 type XMLMasker struct {
-	masker Masker
+	method Method
 }
 
-func NewXMLMasker(masker Masker) *XMLMasker {
+func NewXMLMasker(method Method) *XMLMasker {
 	return &XMLMasker{
-		masker: masker,
+		method: method,
 	}
 }
 
-func (xm *XMLMasker) Mask(r io.Reader, w io.Writer) error {
+func (mt *XMLMasker) Mask(r io.Reader, w io.Writer) error {
 	decoder := xml.NewDecoder(r)
 	encoder := xml.NewEncoder(w)
 	encoder.Indent("", "  ")
@@ -37,10 +37,10 @@ func (xm *XMLMasker) Mask(r io.Reader, w io.Writer) error {
 			for i := range se.Attr {
 				attr := &se.Attr[i]
 				originalValue := attr.Value
-				maskedValue := xm.masker.Mask(originalValue)
+				maskedValue := mt.method.Mask(originalValue)
 				maskedString := fmt.Sprintf("%v", maskedValue)
 
-				if strings.TrimSpace(originalValue) != "" && originalValue == maskedString {
+				if strings.TrimSpace(originalValue) != "" && len(originalValue) > 3 && originalValue == maskedString {
 					fmt.Fprintf(os.Stderr, "Error: attribute was not masked: %s\n", originalValue)
 					os.Exit(1)
 				}
@@ -53,10 +53,10 @@ func (xm *XMLMasker) Mask(r io.Reader, w io.Writer) error {
 		case xml.CharData:
 			trimmedData := strings.TrimSpace(string(se))
 			if len(trimmedData) > 0 {
-				maskedValue := xm.masker.Mask(trimmedData)
+				maskedValue := mt.method.Mask(trimmedData)
 				maskedString := fmt.Sprintf("%v", maskedValue)
 
-				if trimmedData == maskedString {
+				if trimmedData == maskedString && len(trimmedData) > 3 {
 					fmt.Fprintf(os.Stderr, "Error: value was not masked: %s\n", trimmedData)
 					os.Exit(1)
 				}

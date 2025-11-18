@@ -10,7 +10,7 @@ import (
 )
 
 func TestConsistentMasker(t *testing.T) {
-	m := pkg.NewSaltedMasker(testSalt)
+	m := pkg.NewSaltedMethod(testSalt)
 
 	s1 := "hello"
 	s2 := "world"
@@ -44,7 +44,7 @@ func TestConsistentMasker(t *testing.T) {
 }
 
 func TestMaskingAvalancheEffect(t *testing.T) {
-	m := pkg.NewSaltedMasker(testSalt)
+	m := pkg.NewSaltedMethod(testSalt)
 
 	input1 := "hello world"
 	input2 := "hello worle" // Single character difference
@@ -57,7 +57,7 @@ func TestMaskingAvalancheEffect(t *testing.T) {
 }
 
 func TestUniquenessForDifferentInputs(t *testing.T) {
-	m := pkg.NewSaltedMasker(testSalt)
+	m := pkg.NewSaltedMethod(testSalt)
 
 	inputs := []string{"ACTIVE", "INACTIVE", "PENDING", "DELETED", "ARCHIVED"}
 	outputs := make(map[string]bool)
@@ -73,7 +73,7 @@ func TestUniquenessForDifferentInputs(t *testing.T) {
 func TestJSONMasker(t *testing.T) {
 	inputJSON := `{"name": "John Doe", "age": 30, "isStudent": false, "courses": ["Math", "Science"]}`
 
-	m := pkg.NewSaltedMasker(testSalt)
+	m := pkg.NewSaltedMethod(testSalt)
 	jm := pkg.NewJSONMasker(m)
 
 	var in bytes.Buffer
@@ -100,7 +100,7 @@ func TestJSONMasker(t *testing.T) {
 
 func TestXMLMasker(t *testing.T) {
 	inputXML := `<person><name>John Doe</name><age>30</age></person>`
-	m := pkg.NewSaltedMasker(testSalt)
+	m := pkg.NewSaltedMethod(testSalt)
 	xm := pkg.NewXMLMasker(m)
 
 	var in bytes.Buffer

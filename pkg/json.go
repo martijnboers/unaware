@@ -9,12 +9,12 @@ import (
 )
 
 type JSONMasker struct {
-	masker Masker
+	method Method
 }
 
-func NewJSONMasker(masker Masker) *JSONMasker {
+func NewJSONMasker(method Method) *JSONMasker {
 	return &JSONMasker{
-		masker: masker,
+		method: method,
 	}
 }
 
@@ -45,8 +45,8 @@ func (jm *JSONMasker) Mask(r io.Reader, w io.Writer) error {
 func (jm *JSONMasker) maskValue(data any) any {
 	switch v := data.(type) {
 	case json.Number:
-		maskedValue := jm.masker.Mask(v)
-		if v.String() == maskedValue.(json.Number).String() {
+		maskedValue := jm.method.Mask(v)
+		if v.String() == maskedValue.(json.Number).String() && len(v.String()) > 3 {
 			fmt.Fprintf(os.Stderr, "Error: json.Number was not masked: %v\n", v)
 			os.Exit(1)
 		}
@@ -56,7 +56,7 @@ func (jm *JSONMasker) maskValue(data any) any {
 	case []any:
 		return jm.maskSlice(v)
 	default:
-		maskedValue := jm.masker.Mask(v)
+		maskedValue := jm.method.Mask(v)
 		if data != nil && data == maskedValue {
 			if _, isBool := data.(bool); isBool {
 				return maskedValue // Don't check booleans

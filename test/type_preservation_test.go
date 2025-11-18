@@ -12,7 +12,7 @@ import (
 )
 
 func TestTypePreservation(t *testing.T) {
-	masker := pkg.NewSaltedMasker([]byte("test-salt"))
+	masker := pkg.NewSaltedMethod([]byte("test-salt"))
 
 	tests := []struct {
 		name         string

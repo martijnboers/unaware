@@ -7,7 +7,7 @@ import (
 )
 
 func TestRandomMasker(t *testing.T) {
-	m := pkg.NewRandomMasker()
+	m := pkg.NewRandomMethod()
 
 	// Test string masking
 	s1 := "hello"

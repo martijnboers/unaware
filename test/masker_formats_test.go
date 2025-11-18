@@ -7,7 +7,7 @@ import (
 )
 
 func TestEmptyAndWhitespaceMasking(t *testing.T) {
-	m := pkg.NewSaltedMasker(testSalt)
+	m := pkg.NewSaltedMethod(testSalt)
 
 	tests := []struct {
 		name  string

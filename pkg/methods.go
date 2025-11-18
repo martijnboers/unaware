@@ -18,27 +18,27 @@ import (
 	"golang.org/x/text/language"
 )
 
-type Masker interface {
+type Method interface {
 	Mask(value any) any
 }
 
-func NewSaltedMasker(salt []byte) Masker {
-	return &SaltedMasker{
+func NewSaltedMethod(salt []byte) Method {
+	return &SaltedMethod{
 		salt: salt,
 	}
 }
 
-type SaltedMasker struct {
+type SaltedMethod struct {
 	salt []byte
 }
 
-func NewRandomMasker() Masker {
-	return &RandomMasker{
+func NewRandomMethod() Method {
+	return &RandomMethod{
 		faker: gofakeit.New(0),
 	}
 }
 
-type RandomMasker struct {
+type RandomMethod struct {
 	faker *gofakeit.Faker
 }
 
@@ -47,7 +47,7 @@ var (
 	numberLikeRegex = regexp.MustCompile(`^[\d\s-]+$`)
 )
 
-func (m *SaltedMasker) Mask(value any) any {
+func (m *SaltedMethod) Mask(value any) any {
 	if value == nil {
 		return nil
 	}
@@ -163,14 +163,14 @@ func (m *SaltedMasker) Mask(value any) any {
 	return "[MASKED]"
 }
 
-func (m *SaltedMasker) maskURL(r *rand.Rand) string {
+func (m *SaltedMethod) maskURL(r *rand.Rand) string {
 	domain := randomString(r, 10)
 	path1 := randomString(r, 4)
 	path2 := randomString(r, 4)
 	return "https://www." + domain + ".local/" + path1 + "/" + path2
 }
 
-func (m *SaltedMasker) maskEmail(r *rand.Rand) string {
+func (m *SaltedMethod) maskEmail(r *rand.Rand) string {
 	user := randomString(r, 10)
 	domain := randomString(r, 10)
 	return user + "@" + domain + ".local"
@@ -186,7 +186,7 @@ func randomString(r *rand.Rand, n int) string {
 	return string(b)
 }
 
-func (m *SaltedMasker) maskStructuredString(s string, r *rand.Rand) string {
+func (m *SaltedMethod) maskStructuredString(s string, r *rand.Rand) string {
 	var result strings.Builder
 	for _, char := range s {
 		if char >= '0' && char <= '9' {
@@ -198,14 +198,14 @@ func (m *SaltedMasker) maskStructuredString(s string, r *rand.Rand) string {
 	return result.String()
 }
 
-func (m *SaltedMasker) createSeed(s string) int64 {
+func (m *SaltedMethod) createSeed(s string) int64 {
 	mac := hmac.New(sha256.New, m.salt)
 	mac.Write([]byte(s))
 	seedBytes := mac.Sum(nil)
 	return int64(binary.BigEndian.Uint64(seedBytes))
 }
 
-func (r *RandomMasker) Mask(value any) any {
+func (r *RandomMethod) Mask(value any) any {
 	if value == nil {
 		return nil
 	}
