@@ -4,21 +4,20 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
-	"os"
 	"strings"
 )
 
-type XMLMasker struct {
-	method Method
+type XMLProcessor struct {
+	Method
 }
 
-func NewXMLMasker(method Method) *XMLMasker {
-	return &XMLMasker{
-		method: method,
+func NewXMLProcessor(method Method) *XMLProcessor {
+	return &XMLProcessor{
+		Method: method,
 	}
 }
 
-func (mt *XMLMasker) Mask(r io.Reader, w io.Writer) error {
+func (mt *XMLProcessor) Mask(r io.Reader, w io.Writer) error {
 	decoder := xml.NewDecoder(r)
 	encoder := xml.NewEncoder(w)
 	encoder.Indent("", "  ")
@@ -37,14 +36,8 @@ func (mt *XMLMasker) Mask(r io.Reader, w io.Writer) error {
 			for i := range se.Attr {
 				attr := &se.Attr[i]
 				originalValue := attr.Value
-				maskedValue := mt.method.Mask(originalValue)
+				maskedValue := mt.Method.Mask(originalValue)
 				maskedString := fmt.Sprintf("%v", maskedValue)
-
-				if strings.TrimSpace(originalValue) != "" && len(originalValue) > 3 && originalValue == maskedString {
-					fmt.Fprintf(os.Stderr, "Error: attribute was not masked: %s\n", originalValue)
-					os.Exit(1)
-				}
-
 				attr.Value = maskedString
 			}
 			if err := encoder.EncodeToken(se); err != nil {
@@ -53,13 +46,8 @@ func (mt *XMLMasker) Mask(r io.Reader, w io.Writer) error {
 		case xml.CharData:
 			trimmedData := strings.TrimSpace(string(se))
 			if len(trimmedData) > 0 {
-				maskedValue := mt.method.Mask(trimmedData)
+				maskedValue := mt.Method.Mask(trimmedData)
 				maskedString := fmt.Sprintf("%v", maskedValue)
-
-				if trimmedData == maskedString && len(trimmedData) > 3 {
-					fmt.Fprintf(os.Stderr, "Error: value was not masked: %s\n", trimmedData)
-					os.Exit(1)
-				}
 
 				if err := encoder.EncodeToken(xml.CharData(maskedString)); err != nil {
 					return err

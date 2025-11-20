@@ -39,7 +39,7 @@ const jsonListTestData = `[
 ]`
 
 func TestJSONMasker_ListEndToEnd(t *testing.T) {
-	masker := pkg.NewJSONMasker(pkg.NewSaltedMethod(testSalt))
+	masker := pkg.NewJSONProcessor(pkg.NewSaltedMethod(testSalt))
 	var buf bytes.Buffer
 	err := masker.Mask(strings.NewReader(jsonListTestData), &buf)
 	if err != nil {

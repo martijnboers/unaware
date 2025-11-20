@@ -14,7 +14,7 @@ type Processor interface {
 }
 
 type App struct {
-	Processor Processor
+	Processor
 	In        io.Reader
 	Out       io.Writer
 }
@@ -23,9 +23,9 @@ func NewApp(format string, masker Method) (*App, error) {
 	var processor Processor
 	switch format {
 	case "json":
-		processor = NewJSONMasker(masker)
+		processor = NewJSONProcessor(masker)
 	case "xml":
-		processor = NewXMLMasker(masker)
+		processor = NewXMLProcessor(masker)
 	default:
 		return nil, fmt.Errorf("unsupported format: %s", format)
 	}

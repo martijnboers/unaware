@@ -74,7 +74,7 @@ func TestJSONMasker(t *testing.T) {
 	inputJSON := `{"name": "John Doe", "age": 30, "isStudent": false, "courses": ["Math", "Science"]}`
 
 	m := pkg.NewSaltedMethod(testSalt)
-	jm := pkg.NewJSONMasker(m)
+	jm := pkg.NewJSONProcessor(m)
 
 	var in bytes.Buffer
 	in.WriteString(inputJSON)
@@ -101,7 +101,7 @@ func TestJSONMasker(t *testing.T) {
 func TestXMLMasker(t *testing.T) {
 	inputXML := `<person><name>John Doe</name><age>30</age></person>`
 	m := pkg.NewSaltedMethod(testSalt)
-	xm := pkg.NewXMLMasker(m)
+	xm := pkg.NewXMLProcessor(m)
 
 	var in bytes.Buffer
 	in.WriteString(inputXML)
