@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/json"
-	"math/rand"
 	"net"
 	"net/url"
 	"regexp"
@@ -24,12 +23,14 @@ type Method interface {
 
 func NewHashedMethod(salt []byte) Method {
 	return &HashMethod{
-		salt: salt,
+		salt:  salt,
+		faker: gofakeit.NewUnlocked(1),
 	}
 }
 
 type HashMethod struct {
-	salt []byte
+	salt  []byte
+	faker *gofakeit.Faker
 }
 
 func NewRandomMethod() Method {
@@ -56,7 +57,7 @@ func (m *HashMethod) Mask(value any) any {
 	switch v := value.(type) {
 	case string:
 		if strings.TrimSpace(v) == "" {
-			return v // Preserve empty and whitespace-only strings.
+			return v
 		}
 		seedInput = v
 	case json.Number:
@@ -64,12 +65,12 @@ func (m *HashMethod) Mask(value any) any {
 	case bool:
 		seedInput = strconv.FormatBool(v)
 	default:
-		return "[MASKED UNSUPPORTED TYPE]" // Critical: Never return unhandled types.
+		return "[MASKED UNSUPPORTED TYPE]"
 	}
 
+	// Re-seed the main faker for deterministic logic.
 	seed := m.createSeed(seedInput)
-	f := gofakeit.New(seed)
-	r := rand.New(rand.NewSource(seed))
+	m.faker.Rand.Seed(seed)
 
 	switch v := value.(type) {
 	case string:
@@ -77,13 +78,10 @@ func (m *HashMethod) Mask(value any) any {
 		layouts := []string{time.RFC3339, "2006-01-02", "2006-01", "01/02/2006"}
 		for _, layout := range layouts {
 			if t, err := time.Parse(layout, v); err == nil {
-				// Create a new rand.Rand for date generation to avoid interfering with other masking
-				dateRand := rand.New(rand.NewSource(m.createSeed(v + layout)))
-				year := dateRand.Intn(40) + 2000 // Year between 2000-2039
-				month := time.Month(dateRand.Intn(12) + 1)
-				day := dateRand.Intn(28) + 1 // Day between 1-28 to be safe for all months
+				year := m.faker.IntRange(2000, 2039)
+				month := time.Month(m.faker.IntRange(1, 12))
+				day := m.faker.IntRange(1, 28) // Day between 1-28 to be safe for all months
 
-				// Use original time for components not in the layout
 				hour, min, sec := t.Clock()
 				nsec := t.Nanosecond()
 				loc := t.Location()
@@ -92,28 +90,29 @@ func (m *HashMethod) Mask(value any) any {
 				return newDate.Format(layout)
 			}
 		}
+
 		if numberLikeRegex.MatchString(v) {
-			return m.maskStructuredString(v, r)
+			return m.maskStructuredString(v)
 		}
 		if _, err := url.ParseRequestURI(v); err == nil {
-			return m.maskURL(r)
+			return m.maskURL()
 		}
 		if emailRegex.MatchString(v) {
-			return m.maskEmail(r)
+			return m.maskEmail()
 		}
 		if _, err := net.ParseMAC(v); err == nil {
-			return f.MacAddress()
+			return m.faker.MacAddress()
 		}
 		if ip := net.ParseIP(v); ip != nil {
 			if ip.To4() != nil {
-				return f.IPv4Address()
+				return m.faker.IPv4Address()
 			}
-			return f.IPv6Address()
+			return m.faker.IPv6Address()
 		}
 
 		// Generic number checking should be last before word masking
 		if _, err := strconv.ParseInt(v, 10, 64); err == nil {
-			return f.Numerify(strings.Repeat("#", len(v)))
+			return m.faker.Numerify(strings.Repeat("#", len(v)))
 		}
 		if _, err := strconv.ParseFloat(v, 64); err == nil {
 			parts := strings.Split(v, ".")
@@ -126,15 +125,17 @@ func (m *HashMethod) Mask(value any) any {
 			if fractionalPart != "" {
 				template += "." + strings.Repeat("#", len(fractionalPart))
 			}
-			return f.Numerify(template)
+			return m.faker.Numerify(template)
 		}
 
 		words := strings.Split(v, " ")
 		maskedWords := make([]string, len(words))
 		caser := cases.Title(language.English)
 		for i, word := range words {
-			wordFaker := gofakeit.New(m.createSeed(word))
-			maskedWord := wordFaker.Word()
+			// Re-seed the main faker for each word for deterministic word-level masking.
+			m.faker.Rand.Seed(m.createSeed(word))
+			maskedWord := m.faker.Word()
+
 			if len(word) > 0 && word[0] >= 'A' && word[0] <= 'Z' {
 				maskedWords[i] = caser.String(maskedWord)
 			} else {
@@ -146,51 +147,49 @@ func (m *HashMethod) Mask(value any) any {
 	case json.Number:
 		s := v.String()
 		if strings.Contains(s, ".") {
-			// It's a float, preserve structure
 			parts := strings.Split(s, ".")
 			integerPart := parts[0]
 			fractionalPart := parts[1]
 			template := strings.Repeat("#", len(integerPart)) + "." + strings.Repeat("#", len(fractionalPart))
-			return json.Number(f.Numerify(template))
+			return json.Number(m.faker.Numerify(template))
 		}
-		// It's an integer, preserve length
-		return json.Number(f.Numerify(strings.Repeat("#", len(s))))
+		return json.Number(m.faker.Numerify(strings.Repeat("#", len(s))))
 
 	case bool:
-		return f.Bool()
+		return m.faker.Bool()
 	}
 
 	return "[MASKED]"
 }
 
-func (m *HashMethod) maskURL(r *rand.Rand) string {
-	domain := randomString(r, 10)
-	path1 := randomString(r, 4)
-	path2 := randomString(r, 4)
+func (m *HashMethod) maskURL() string {
+	domain := m.randomString(10)
+	path1 := m.randomString(4)
+	path2 := m.randomString(4)
 	return "https://www." + domain + ".local/" + path1 + "/" + path2
 }
 
-func (m *HashMethod) maskEmail(r *rand.Rand) string {
-	user := randomString(r, 10)
-	domain := randomString(r, 10)
+func (m *HashMethod) maskEmail() string {
+	user := m.randomString(10)
+	domain := m.randomString(10)
 	return user + "@" + domain + ".local"
 }
 
 const letterBytes = "abcdefghijklmnopqrstuvwxyz"
 
-func randomString(r *rand.Rand, n int) string {
+func (m *HashMethod) randomString(n int) string {
 	b := make([]byte, n)
 	for i := range b {
-		b[i] = letterBytes[r.Intn(len(letterBytes))]
+		b[i] = letterBytes[m.faker.Rand.Intn(len(letterBytes))]
 	}
 	return string(b)
 }
 
-func (m *HashMethod) maskStructuredString(s string, r *rand.Rand) string {
+func (m *HashMethod) maskStructuredString(s string) string {
 	var result strings.Builder
 	for _, char := range s {
 		if char >= '0' && char <= '9' {
-			result.WriteString(strconv.Itoa(r.Intn(10)))
+			result.WriteString(strconv.Itoa(m.faker.Rand.Intn(10)))
 		} else {
 			result.WriteRune(char)
 		}
