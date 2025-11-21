@@ -57,7 +57,7 @@ const comprehensiveXMLInput = `<?xml version="1.0" encoding="UTF-8"?>
 
 func TestXMLMasker_WithAttributes(t *testing.T) {
 	inputXML := `<data><item id="a1b2-c3d4-e5f6" secret="secret-value">test</item></data>`
-	m := pkg.NewSaltedMethod(testSalt)
+	m := pkg.NewHashedMethod(testSalt)
 	xm := pkg.NewXMLProcessor(m)
 
 	var in bytes.Buffer
@@ -79,7 +79,7 @@ func TestXMLMasker_WithAttributes(t *testing.T) {
 }
 
 func TestXMLMasker_ComprehensiveFormatValidation(t *testing.T) {
-	m := pkg.NewSaltedMethod(testSalt)
+	m := pkg.NewHashedMethod(testSalt)
 	xm := pkg.NewXMLProcessor(m)
 
 	var in bytes.Buffer

@@ -85,7 +85,7 @@ func TestJSONMasker_Advanced(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			masker := pkg.NewSaltedMethod(testSalt)
+			masker := pkg.NewHashedMethod(testSalt)
 
 			jsonMasker := pkg.NewJSONProcessor(masker)
 			input := bytes.NewReader([]byte(tt.input))

@@ -9,7 +9,7 @@ import (
 )
 
 func TestExtendedMasking(t *testing.T) {
-	masker := pkg.NewSaltedMethod([]byte(testSalt))
+	masker := pkg.NewHashedMethod([]byte(testSalt))
 
 	tests := []struct {
 		name         string

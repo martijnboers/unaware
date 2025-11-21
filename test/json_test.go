@@ -11,7 +11,7 @@ import (
 
 func TestJSONMasker_EmptyObject(t *testing.T) {
 	inputJSON := `{}`
-	m := pkg.NewSaltedMethod(testSalt)
+	m := pkg.NewHashedMethod(testSalt)
 	jm := pkg.NewJSONProcessor(m)
 
 	var in bytes.Buffer
@@ -30,7 +30,7 @@ func TestJSONMasker_EmptyObject(t *testing.T) {
 
 func TestJSONMasker_EmptyArray(t *testing.T) {
 	inputJSON := `[]`
-	m := pkg.NewSaltedMethod(testSalt)
+	m := pkg.NewHashedMethod(testSalt)
 	jm := pkg.NewJSONProcessor(m)
 
 	var in bytes.Buffer
@@ -49,7 +49,7 @@ func TestJSONMasker_EmptyArray(t *testing.T) {
 
 func TestJSONMasker_NullValues(t *testing.T) {
 	inputJSON := `{"key": null}`
-	m := pkg.NewSaltedMethod(testSalt)
+	m := pkg.NewHashedMethod(testSalt)
 	jm := pkg.NewJSONProcessor(m)
 
 	var in bytes.Buffer
@@ -74,7 +74,7 @@ func TestJSONMasker_NullValues(t *testing.T) {
 
 func TestJSONMasker_NestedStructure(t *testing.T) {
 	inputJSON := `{"user": {"name": "Jane Doe", "details": {"age": 25, "city": "New York"}}}`
-	m := pkg.NewSaltedMethod(testSalt)
+	m := pkg.NewHashedMethod(testSalt)
 	jm := pkg.NewJSONProcessor(m)
 
 	var in bytes.Buffer
@@ -113,7 +113,7 @@ func TestJSONMasker_NestedStructure(t *testing.T) {
 
 func TestJSONMasker_MixedArray(t *testing.T) {
 	inputJSON := `["string", 123, true, null]`
-	m := pkg.NewSaltedMethod(testSalt)
+	m := pkg.NewHashedMethod(testSalt)
 	jm := pkg.NewJSONProcessor(m)
 
 	var in bytes.Buffer

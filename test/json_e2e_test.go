@@ -55,7 +55,7 @@ const jsonTestData = `{
 }`
 
 func TestJSONMasker_EndToEnd(t *testing.T) {
-	masker := pkg.NewJSONProcessor(pkg.NewSaltedMethod(testSalt))
+	masker := pkg.NewJSONProcessor(pkg.NewHashedMethod(testSalt))
 	var buf bytes.Buffer
 	err := masker.Mask(strings.NewReader(jsonTestData), &buf)
 	if err != nil {

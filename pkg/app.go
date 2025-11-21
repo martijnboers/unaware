@@ -12,8 +12,8 @@ type Processor interface {
 
 type App struct {
 	Processor
-	In        io.Reader
-	Out       io.Writer
+	In  io.Reader
+	Out io.Writer
 }
 
 func NewApp(format string, masker Method) (*App, error) {
