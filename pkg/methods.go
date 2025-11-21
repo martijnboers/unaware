@@ -18,14 +18,14 @@ import (
 	"golang.org/x/text/language"
 )
 
+// seeder is an internal interface for swapping seeding behavior.
 type seeder interface {
 	SeedFaker(f *gofakeit.Faker, input any)
 	SeedFakerForWord(f *gofakeit.Faker, word string)
 }
 
-type hashedSeeder struct {
-	salt []byte
-}
+// --- Seeder Implementations ---
+type hashedSeeder struct{ salt []byte }
 
 func (hs *hashedSeeder) SeedFaker(f *gofakeit.Faker, input any) {
 	var seedInput string
@@ -41,11 +41,9 @@ func (hs *hashedSeeder) SeedFaker(f *gofakeit.Faker, input any) {
 	}
 	f.Rand.Seed(hs.createSeed(seedInput))
 }
-
 func (hs *hashedSeeder) SeedFakerForWord(f *gofakeit.Faker, word string) {
 	f.Rand.Seed(hs.createSeed(word))
 }
-
 func (hs *hashedSeeder) createSeed(s string) int64 {
 	mac := hmac.New(sha256.New, hs.salt)
 	mac.Write([]byte(s))
@@ -58,6 +56,7 @@ type randomSeeder struct{}
 func (rs *randomSeeder) SeedFaker(f *gofakeit.Faker, input any)          { /* No-op */ }
 func (rs *randomSeeder) SeedFakerForWord(f *gofakeit.Faker, word string) { /* No-op */ }
 
+// --- Internal Masker Implementation ---
 type masker struct {
 	faker        *gofakeit.Faker
 	seeder       seeder
@@ -66,73 +65,54 @@ type masker struct {
 	numLikeRegex *regexp.Regexp
 }
 
-type Method interface {
-	Mask(value any) any
-}
-
-func newMasker(f *gofakeit.Faker, s seeder) *masker {
-	return &masker{
-		faker:  f,
-		seeder: s,
+func newMasker(strategy MaskingStrategy) *masker {
+	m := &masker{
 		dateLayouts: []string{
-			time.RFC3339,
-			time.RFC3339Nano,
-			"2006-01-02T15:04:05Z07:00",
-			"2006-01-02 15:04:05",
-			"2006-01-02",
-			"2006-01",
-			"01/02/2006",
-			time.RFC1123,
+			time.RFC3339, time.RFC3339Nano, "2006-01-02T15:04:05Z07:00", "2006-01-02 15:04:05", "2006-01-02", "2006-01", "01/02/2006", time.RFC1123,
 		},
 		emailRegex:   regexp.MustCompile(`^[^@\s]+@[^@\s]+\.[^@\s]+$`),
 		numLikeRegex: regexp.MustCompile(`^[\d\s-]+$`),
 	}
+	strategy(m)
+	if _, ok := m.seeder.(*hashedSeeder); ok {
+		m.faker = gofakeit.NewUnlocked(1)
+	} else {
+		m.faker = gofakeit.New(0)
+	}
+	return m
 }
 
-func NewHashedMethod(salt []byte) Method {
-	return newMasker(gofakeit.NewUnlocked(1), &hashedSeeder{salt: salt})
-}
-
-func NewRandomMethod() Method {
-	return newMasker(gofakeit.New(0), &randomSeeder{})
-}
-
-func (m *masker) Mask(value any) any {
+func (m *masker) mask(value any) any {
 	if value == nil {
 		return nil
 	}
-
 	m.seeder.SeedFaker(m.faker, value)
-
 	switch v := value.(type) {
 	case string:
-		if strings.TrimSpace(v) == "" {
-			return v
+		s := v
+		if strings.TrimSpace(s) == "" {
+			return s
 		}
-
-		// 1. Unambiguous, non-numeric formats first.
-		if _, err := url.ParseRequestURI(v); err == nil {
+		if _, err := url.ParseRequestURI(s); err == nil {
 			return m.faker.URL()
 		}
-		if m.emailRegex.MatchString(v) {
+		if m.emailRegex.MatchString(s) {
 			return m.faker.Email()
 		}
-		if _, err := net.ParseMAC(v); err == nil {
+		if _, err := net.ParseMAC(s); err == nil {
 			return m.faker.MacAddress()
 		}
-		if ip := net.ParseIP(v); ip != nil {
+		if ip := net.ParseIP(s); ip != nil {
 			if ip.To4() != nil {
 				return m.faker.IPv4Address()
 			}
 			return m.faker.IPv6Address()
 		}
-
-		// 2. Pure numeric strings.
-		if _, err := strconv.ParseInt(v, 10, 64); err == nil {
-			return m.faker.Numerify(strings.Repeat("#", len(v)))
+		if _, err := strconv.ParseInt(s, 10, 64); err == nil {
+			return m.faker.Numerify(strings.Repeat("#", len(s)))
 		}
-		if _, err := strconv.ParseFloat(v, 64); err == nil {
-			parts := strings.Split(v, ".")
+		if _, err := strconv.ParseFloat(s, 64); err == nil {
+			parts := strings.Split(s, ".")
 			integerPart := parts[0]
 			fractionalPart := ""
 			if len(parts) > 1 {
@@ -144,18 +124,14 @@ func (m *masker) Mask(value any) any {
 			}
 			return m.faker.Numerify(template)
 		}
-
-		// 3. Specific date layouts.
 		for _, layout := range m.dateLayouts {
-			if _, err := time.Parse(layout, v); err == nil {
+			if _, err := time.Parse(layout, s); err == nil {
 				return m.faker.Date().Format(layout)
 			}
 		}
-
-		// 4. Mixed-character numeric strings.
-		if m.numLikeRegex.MatchString(v) {
+		if m.numLikeRegex.MatchString(s) {
 			var result strings.Builder
-			for _, char := range v {
+			for _, char := range s {
 				if char >= '0' && char <= '9' {
 					result.WriteString(strconv.Itoa(m.faker.Rand.Intn(10)))
 				} else {
@@ -164,14 +140,10 @@ func (m *masker) Mask(value any) any {
 			}
 			return result.String()
 		}
-
-		// 5. Greedy date parser.
-		if _, err := dateparse.ParseAny(v); err == nil {
+		if _, err := dateparse.ParseAny(s); err == nil {
 			return m.faker.Date().Format(time.RFC3339)
 		}
-
-		// 6. No specific rule matched.
-		words := strings.Split(v, " ")
+		words := strings.Split(s, " ")
 		maskedWords := make([]string, len(words))
 		caser := cases.Title(language.English)
 		for i, word := range words {
@@ -184,7 +156,6 @@ func (m *masker) Mask(value any) any {
 			}
 		}
 		return strings.Join(maskedWords, " ")
-
 	case json.Number:
 		s := v.String()
 		if strings.Contains(s, ".") {
@@ -193,10 +164,8 @@ func (m *masker) Mask(value any) any {
 			return json.Number(m.faker.Numerify(template))
 		}
 		return json.Number(m.faker.Numerify(strings.Repeat("#", len(s))))
-
 	case bool:
 		return m.faker.Bool()
 	}
-
 	return "[MASKED UNSUPPORTED TYPE]"
 }
