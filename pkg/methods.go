@@ -12,93 +12,110 @@ import (
 	"strings"
 	"time"
 
+	"github.com/araddon/dateparse"
 	"github.com/brianvoe/gofakeit/v6"
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
 )
 
-type Method interface {
-	Mask(value any) any
+type seeder interface {
+	SeedFaker(f *gofakeit.Faker, input any)
+	SeedFakerForWord(f *gofakeit.Faker, word string)
 }
 
-func NewHashedMethod(salt []byte) Method {
-	return &HashMethod{
-		salt:  salt,
-		faker: gofakeit.NewUnlocked(1),
-	}
+type hashedSeeder struct {
+	salt []byte
 }
 
-type HashMethod struct {
-	salt  []byte
-	faker *gofakeit.Faker
-}
-
-func NewRandomMethod() Method {
-	return &RandomMethod{
-		faker: gofakeit.New(0),
-	}
-}
-
-type RandomMethod struct {
-	faker *gofakeit.Faker
-}
-
-var (
-	emailRegex      = regexp.MustCompile(`^[^@\s]+@[^@\s]+\.[^@\s]+$`)
-	numberLikeRegex = regexp.MustCompile(`^[\d\s-]+$`)
-)
-
-func (m *HashMethod) Mask(value any) any {
-	if value == nil {
-		return nil
-	}
-
+func (hs *hashedSeeder) SeedFaker(f *gofakeit.Faker, input any) {
 	var seedInput string
-	switch v := value.(type) {
+	switch v := input.(type) {
 	case string:
-		if strings.TrimSpace(v) == "" {
-			return v
-		}
 		seedInput = v
 	case json.Number:
 		seedInput = v.String()
 	case bool:
 		seedInput = strconv.FormatBool(v)
 	default:
-		return "[MASKED UNSUPPORTED TYPE]"
+		seedInput = "[UNSUPPORTED]"
+	}
+	f.Rand.Seed(hs.createSeed(seedInput))
+}
+
+func (hs *hashedSeeder) SeedFakerForWord(f *gofakeit.Faker, word string) {
+	f.Rand.Seed(hs.createSeed(word))
+}
+
+func (hs *hashedSeeder) createSeed(s string) int64 {
+	mac := hmac.New(sha256.New, hs.salt)
+	mac.Write([]byte(s))
+	seedBytes := mac.Sum(nil)
+	return int64(binary.BigEndian.Uint64(seedBytes))
+}
+
+type randomSeeder struct{}
+
+func (rs *randomSeeder) SeedFaker(f *gofakeit.Faker, input any)          { /* No-op */ }
+func (rs *randomSeeder) SeedFakerForWord(f *gofakeit.Faker, word string) { /* No-op */ }
+
+type masker struct {
+	faker        *gofakeit.Faker
+	seeder       seeder
+	dateLayouts  []string
+	emailRegex   *regexp.Regexp
+	numLikeRegex *regexp.Regexp
+}
+
+type Method interface {
+	Mask(value any) any
+}
+
+func newMasker(f *gofakeit.Faker, s seeder) *masker {
+	return &masker{
+		faker:  f,
+		seeder: s,
+		dateLayouts: []string{
+			time.RFC3339,
+			time.RFC3339Nano,
+			"2006-01-02T15:04:05Z07:00",
+			"2006-01-02 15:04:05",
+			"2006-01-02",
+			"2006-01",
+			"01/02/2006",
+			time.RFC1123,
+		},
+		emailRegex:   regexp.MustCompile(`^[^@\s]+@[^@\s]+\.[^@\s]+$`),
+		numLikeRegex: regexp.MustCompile(`^[\d\s-]+$`),
+	}
+}
+
+func NewHashedMethod(salt []byte) Method {
+	return newMasker(gofakeit.NewUnlocked(1), &hashedSeeder{salt: salt})
+}
+
+func NewRandomMethod() Method {
+	return newMasker(gofakeit.New(0), &randomSeeder{})
+}
+
+func (m *masker) Mask(value any) any {
+	if value == nil {
+		return nil
 	}
 
-	// Re-seed the main faker for deterministic logic.
-	seed := m.createSeed(seedInput)
-	m.faker.Rand.Seed(seed)
+	m.seeder.SeedFaker(m.faker, value)
 
 	switch v := value.(type) {
 	case string:
-		// Date and Time parsing should be before number-like checks
-		layouts := []string{time.RFC3339, "2006-01-02", "2006-01", "01/02/2006"}
-		for _, layout := range layouts {
-			if t, err := time.Parse(layout, v); err == nil {
-				year := m.faker.IntRange(2000, 2039)
-				month := time.Month(m.faker.IntRange(1, 12))
-				day := m.faker.IntRange(1, 28) // Day between 1-28 to be safe for all months
-
-				hour, min, sec := t.Clock()
-				nsec := t.Nanosecond()
-				loc := t.Location()
-
-				newDate := time.Date(year, month, day, hour, min, sec, nsec, loc)
-				return newDate.Format(layout)
-			}
+		if strings.TrimSpace(v) == "" {
+			return v
 		}
 
-		if numberLikeRegex.MatchString(v) {
-			return m.maskStructuredString(v)
-		}
+		// 1. Unambiguous, non-numeric formats first.
 		if _, err := url.ParseRequestURI(v); err == nil {
-			return m.maskURL()
+			return m.faker.URL()
 		}
-		if emailRegex.MatchString(v) {
-			return m.maskEmail()
+		if m.emailRegex.MatchString(v) {
+			return m.faker.Email()
 		}
 		if _, err := net.ParseMAC(v); err == nil {
 			return m.faker.MacAddress()
@@ -110,7 +127,7 @@ func (m *HashMethod) Mask(value any) any {
 			return m.faker.IPv6Address()
 		}
 
-		// Generic number checking should be last before word masking
+		// 2. Pure numeric strings.
 		if _, err := strconv.ParseInt(v, 10, 64); err == nil {
 			return m.faker.Numerify(strings.Repeat("#", len(v)))
 		}
@@ -128,14 +145,38 @@ func (m *HashMethod) Mask(value any) any {
 			return m.faker.Numerify(template)
 		}
 
+		// 3. Specific date layouts.
+		for _, layout := range m.dateLayouts {
+			if _, err := time.Parse(layout, v); err == nil {
+				return m.faker.Date().Format(layout)
+			}
+		}
+
+		// 4. Mixed-character numeric strings.
+		if m.numLikeRegex.MatchString(v) {
+			var result strings.Builder
+			for _, char := range v {
+				if char >= '0' && char <= '9' {
+					result.WriteString(strconv.Itoa(m.faker.Rand.Intn(10)))
+				} else {
+					result.WriteRune(char)
+				}
+			}
+			return result.String()
+		}
+
+		// 5. Greedy date parser.
+		if _, err := dateparse.ParseAny(v); err == nil {
+			return m.faker.Date().Format(time.RFC3339)
+		}
+
+		// 6. No specific rule matched.
 		words := strings.Split(v, " ")
 		maskedWords := make([]string, len(words))
 		caser := cases.Title(language.English)
 		for i, word := range words {
-			// Re-seed the main faker for each word for deterministic word-level masking.
-			m.faker.Rand.Seed(m.createSeed(word))
+			m.seeder.SeedFakerForWord(m.faker, word)
 			maskedWord := m.faker.Word()
-
 			if len(word) > 0 && word[0] >= 'A' && word[0] <= 'Z' {
 				maskedWords[i] = caser.String(maskedWord)
 			} else {
@@ -148,9 +189,7 @@ func (m *HashMethod) Mask(value any) any {
 		s := v.String()
 		if strings.Contains(s, ".") {
 			parts := strings.Split(s, ".")
-			integerPart := parts[0]
-			fractionalPart := parts[1]
-			template := strings.Repeat("#", len(integerPart)) + "." + strings.Repeat("#", len(fractionalPart))
+			template := strings.Repeat("#", len(parts[0])) + "." + strings.Repeat("#", len(parts[1]))
 			return json.Number(m.faker.Numerify(template))
 		}
 		return json.Number(m.faker.Numerify(strings.Repeat("#", len(s))))
@@ -159,148 +198,5 @@ func (m *HashMethod) Mask(value any) any {
 		return m.faker.Bool()
 	}
 
-	return "[MASKED]"
-}
-
-func (m *HashMethod) maskURL() string {
-	domain := m.randomString(10)
-	path1 := m.randomString(4)
-	path2 := m.randomString(4)
-	return "https://www." + domain + ".local/" + path1 + "/" + path2
-}
-
-func (m *HashMethod) maskEmail() string {
-	user := m.randomString(10)
-	domain := m.randomString(10)
-	return user + "@" + domain + ".local"
-}
-
-const letterBytes = "abcdefghijklmnopqrstuvwxyz"
-
-func (m *HashMethod) randomString(n int) string {
-	b := make([]byte, n)
-	for i := range b {
-		b[i] = letterBytes[m.faker.Rand.Intn(len(letterBytes))]
-	}
-	return string(b)
-}
-
-func (m *HashMethod) maskStructuredString(s string) string {
-	var result strings.Builder
-	for _, char := range s {
-		if char >= '0' && char <= '9' {
-			result.WriteString(strconv.Itoa(m.faker.Rand.Intn(10)))
-		} else {
-			result.WriteRune(char)
-		}
-	}
-	return result.String()
-}
-
-func (m *HashMethod) createSeed(s string) int64 {
-	mac := hmac.New(sha256.New, m.salt)
-	mac.Write([]byte(s))
-	seedBytes := mac.Sum(nil)
-	return int64(binary.BigEndian.Uint64(seedBytes))
-}
-
-func (r *RandomMethod) Mask(value any) any {
-	if value == nil {
-		return nil
-	}
-
-	switch v := value.(type) {
-	case string:
-		if strings.TrimSpace(v) == "" {
-			return v // Preserve empty and whitespace-only strings.
-		}
-		// Date and Time parsing should be before number-like checks
-		layouts := []string{time.RFC3339, "2006-01-02", "2006-01", "01/02/2006"}
-		for _, layout := range layouts {
-			if t, err := time.Parse(layout, v); err == nil {
-				year := r.faker.IntRange(2000, 2039)
-				month := time.Month(r.faker.IntRange(1, 12))
-				day := r.faker.IntRange(1, 28)
-
-				hour, min, sec := t.Clock()
-				nsec := t.Nanosecond()
-				loc := t.Location()
-
-				newDate := time.Date(year, month, day, hour, min, sec, nsec, loc)
-				return newDate.Format(layout)
-			}
-		}
-		if numberLikeRegex.MatchString(v) {
-			var result strings.Builder
-			for _, char := range v {
-				if char >= '0' && char <= '9' {
-					result.WriteString(strconv.Itoa(r.faker.IntRange(0, 9)))
-				} else {
-					result.WriteRune(char)
-				}
-			}
-			return result.String()
-		}
-		if _, err := url.ParseRequestURI(v); err == nil {
-			return r.faker.URL()
-		}
-		if emailRegex.MatchString(v) {
-			return r.faker.Email()
-		}
-		if _, err := net.ParseMAC(v); err == nil {
-			return r.faker.MacAddress()
-		}
-		if ip := net.ParseIP(v); ip != nil {
-			if ip.To4() != nil {
-				return r.faker.IPv4Address()
-			}
-			return r.faker.IPv6Address()
-		}
-
-		if _, err := strconv.ParseInt(v, 10, 64); err == nil {
-			return r.faker.Numerify(strings.Repeat("#", len(v)))
-		}
-		if _, err := strconv.ParseFloat(v, 64); err == nil {
-			parts := strings.Split(v, ".")
-			integerPart := parts[0]
-			fractionalPart := ""
-			if len(parts) > 1 {
-				fractionalPart = parts[1]
-			}
-			template := strings.Repeat("#", len(integerPart))
-			if fractionalPart != "" {
-				template += "." + strings.Repeat("#", len(fractionalPart))
-			}
-			return r.faker.Numerify(template)
-		}
-
-		words := strings.Split(v, " ")
-		maskedWords := make([]string, len(words))
-		caser := cases.Title(language.English)
-		for i, word := range words {
-			maskedWord := r.faker.Word()
-			if len(word) > 0 && word[0] >= 'A' && word[0] <= 'Z' {
-				maskedWords[i] = caser.String(maskedWord)
-			} else {
-				maskedWords[i] = maskedWord
-			}
-		}
-		return strings.Join(maskedWords, " ")
-
-	case json.Number:
-		s := v.String()
-		if strings.Contains(s, ".") {
-			parts := strings.Split(s, ".")
-			integerPart := parts[0]
-			fractionalPart := parts[1]
-			template := strings.Repeat("#", len(integerPart)) + "." + strings.Repeat("#", len(fractionalPart))
-			return json.Number(r.faker.Numerify(template))
-		}
-		return json.Number(r.faker.Numerify(strings.Repeat("#", len(s))))
-
-	case bool:
-		return r.faker.Bool()
-	}
-
-	return "[MASKED]"
+	return "[MASKED UNSUPPORTED TYPE]"
 }
