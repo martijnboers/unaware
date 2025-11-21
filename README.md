@@ -1,33 +1,34 @@
-### Description
-`unaware` is a program for anonymizing or masking all XML and JSON property values from stdin or filepath. When masking it tries to mimick the length and appareance of various data types.
+## Description
+`unaware` is a command-line tool for masking sensitive data within XML and JSON files. It processes data from files or `stdin` and anonymizes all property values while mimicking the length and appearance of the original data types.
 
-### Install
-`go build -o unaware cmd/main.go` or see releases
+It is a cross-platform, statically linked binary with no external dependencies. It leverages streaming and concurrency to efficiently process large files entirely offline.
 
-### Flags
-- `-format string`: The format of the input data (`json` or `xml`). (default: `json`)
-- `-in string`: Input file path. (default: `stdin`)
-- `-out string`: Output file path. (default: `stdout`)
-- `-method string`: Method of masking (`random` or `hashed`) (default `random`)
+### Installation
+
+Build the binary from the source:
+```shell
+go build -o unaware main.go
+```
+Alternatively, check the releases page for pre-built binaries.
 
 ### Examples
 
-#### JSON from file 
-
+#### JSON from a file
 ```shell
 ./unaware -in source.json -out anonymized.json
 ```
 
-#### JSON from clipboard
-
+#### XML from stdin with hashed (deterministic) masking
 ```shell
-wl-paste | ./unaware 
+cat source.xml | ./unaware -format xml -method hashed > masked.xml
 ```
 
-
-#### XML from stdin to stdout with hashed data
-
+#### Use a static salt for consistent masking results
 ```shell
-cat source.xml | ./unaware -format xml -random-hash > masked.xml
+STATIC_SALT=testing123 ./unaware -in source.json
 ```
 
+#### JSON from the clipboard into `jq`
+```shell
+wl-paste | ./unaware | jq '.[0:3]'
+```

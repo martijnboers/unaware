@@ -45,7 +45,6 @@ func main() {
 		defer pprof.StopCPUProfile()
 	}
 
-	// --- The New, Clean API in action ---
 	var strategy pkg.MaskingStrategy
 	switch *methodFlag {
 	case "hashed":
@@ -67,7 +66,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Setup reader and writer
 	reader := os.Stdin
 	var inputCloser io.Closer
 	if *inputFile != "" {
@@ -95,8 +93,7 @@ func main() {
 		writer = f
 	}
 
-	// Call the single, top-level Process function
-	if err := pkg.Process(*format, reader, writer, strategy); err != nil {
+	if err := pkg.Start(*format, reader, writer, strategy); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		// Clean up the potentially partially written file on error
 		if outputCloser != nil {

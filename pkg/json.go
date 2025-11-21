@@ -51,7 +51,6 @@ func (jp *jsonProcessor) Process(r io.Reader, w io.Writer) error {
 	return jp.processSerially(br, w)
 }
 
-// --- jsonAssembler Implementation ---
 type jsonAssembler struct{}
 
 func (a *jsonAssembler) WriteStart(w io.Writer) error { _, err := w.Write([]byte("[\n")); return err }
@@ -67,7 +66,6 @@ func (a *jsonAssembler) WriteItem(w io.Writer, item any, isFirst bool) error {
 }
 func (a *jsonAssembler) WriteEnd(w io.Writer) error { _, err := w.Write([]byte("\n]\n")); return err }
 
-// --- Peeking Reader Helper ---
 type peekingReader struct {
 	r    io.Reader
 	peek []byte
@@ -105,7 +103,7 @@ func (pr *peekingReader) PeekFirstChar() (byte, error) {
 			pr.err = err
 			return 0, err
 		}
-		for i := 0; i < n; i++ {
+		for i := range n {
 			c := buf[i]
 			if !isWhitespace(c) {
 				pr.peek = buf[i:n]
@@ -116,7 +114,6 @@ func (pr *peekingReader) PeekFirstChar() (byte, error) {
 }
 func isWhitespace(c byte) bool { return c == ' ' || c == '\n' || c == '\r' || c == '\t' }
 
-// --- Serial Fallback Logic ---
 func (jp *jsonProcessor) processSerially(r io.Reader, w io.Writer) error {
 	decoder := json.NewDecoder(r)
 	decoder.UseNumber()
