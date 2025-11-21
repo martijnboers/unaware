@@ -1,9 +1,6 @@
 package pkg
 
 import (
-	"bytes"
-	"encoding/json"
-	"encoding/xml"
 	"fmt"
 	"io"
 	"os"
@@ -39,6 +36,7 @@ func NewApp(format string, masker Method) (*App, error) {
 
 func (a *App) Run(inputFile, outputFile, format string) error {
 	var reader io.Reader = a.In
+
 	if inputFile != "" {
 		f, err := os.Open(inputFile)
 		if err != nil {
@@ -48,16 +46,8 @@ func (a *App) Run(inputFile, outputFile, format string) error {
 		reader = f
 	}
 
-	inputBytes, err := io.ReadAll(reader)
-	if err != nil {
-		return fmt.Errorf("error reading input: %w", err)
-	}
-
-	if err := validateInput(inputBytes, format); err != nil {
-		return err
-	}
-
 	var writer io.Writer = a.Out
+
 	if outputFile != "" {
 		f, err := os.Create(outputFile)
 		if err != nil {
@@ -67,32 +57,5 @@ func (a *App) Run(inputFile, outputFile, format string) error {
 		writer = f
 	}
 
-	inputReader := bytes.NewReader(inputBytes)
-
-	return a.Processor.Mask(inputReader, writer)
-}
-
-func validateInput(data []byte, format string) error {
-	switch format {
-	case "json":
-		dec := json.NewDecoder(bytes.NewReader(data))
-		if err := dec.Decode(&json.RawMessage{}); err != nil {
-			return fmt.Errorf("error: input is not valid JSON: %w", err)
-		}
-		if dec.More() {
-			return fmt.Errorf("error: input contains multiple JSON documents or trailing data")
-		}
-	case "xml":
-		dec := xml.NewDecoder(bytes.NewReader(data))
-		for {
-			_, err := dec.Token()
-			if err == io.EOF {
-				break // Valid end of document
-			}
-			if err != nil {
-				return fmt.Errorf("error: input is not valid XML: %w", err)
-			}
-		}
-	}
-	return nil
+	return a.Processor.Mask(reader, writer)
 }
