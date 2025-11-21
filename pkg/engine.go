@@ -5,6 +5,8 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/json"
+	"fmt"
+	"io"
 	"net"
 	"net/url"
 	"regexp"
@@ -18,13 +20,29 @@ import (
 	"golang.org/x/text/language"
 )
 
-// seeder is an internal interface for swapping seeding behavior.
+type processor interface {
+	Process(r io.Reader, w io.Writer) error
+}
+
+func Start(format string, r io.Reader, w io.Writer, strategy MaskingStrategy) error {
+	var p processor
+	switch format {
+	case "json":
+		p = newJSONProcessor(strategy)
+	case "xml":
+		p = newXMLProcessor(strategy)
+	default:
+		return fmt.Errorf("unsupported format: %s", format)
+	}
+
+	return p.Process(r, w)
+}
+
 type seeder interface {
 	SeedFaker(f *gofakeit.Faker, input any)
 	SeedFakerForWord(f *gofakeit.Faker, word string)
 }
 
-// --- Seeder Implementations ---
 type hashedSeeder struct{ salt []byte }
 
 func (hs *hashedSeeder) SeedFaker(f *gofakeit.Faker, input any) {
@@ -51,12 +69,25 @@ func (hs *hashedSeeder) createSeed(s string) int64 {
 	return int64(binary.BigEndian.Uint64(seedBytes))
 }
 
+type MaskingStrategy func(*masker)
+
+func Hashed(salt []byte) MaskingStrategy {
+	return func(m *masker) {
+		m.seeder = &hashedSeeder{salt: salt}
+	}
+}
+
 type randomSeeder struct{}
 
 func (rs *randomSeeder) SeedFaker(f *gofakeit.Faker, input any)          { /* No-op */ }
 func (rs *randomSeeder) SeedFakerForWord(f *gofakeit.Faker, word string) { /* No-op */ }
 
-// --- Internal Masker Implementation ---
+func Random() MaskingStrategy {
+	return func(m *masker) {
+		m.seeder = &randomSeeder{}
+	}
+}
+
 type masker struct {
 	faker        *gofakeit.Faker
 	seeder       seeder
@@ -68,7 +99,14 @@ type masker struct {
 func newMasker(strategy MaskingStrategy) *masker {
 	m := &masker{
 		dateLayouts: []string{
-			time.RFC3339, time.RFC3339Nano, "2006-01-02T15:04:05Z07:00", "2006-01-02 15:04:05", "2006-01-02", "2006-01", "01/02/2006", time.RFC1123,
+			time.RFC3339,
+			time.RFC3339Nano,
+			"2006-01-02T15:04:05Z07:00",
+			"2006-01-02 15:04:05",
+			"2006-01-02",
+			"2006-01",
+			"01/02/2006",
+			time.RFC1123,
 		},
 		emailRegex:   regexp.MustCompile(`^[^@\s]+@[^@\s]+\.[^@\s]+$`),
 		numLikeRegex: regexp.MustCompile(`^[\d\s-]+$`),

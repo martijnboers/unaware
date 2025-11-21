@@ -7,7 +7,6 @@ import (
 	"sync"
 )
 
-// --- Generic Pipeline Structures ---
 type chunkReader func() (any, error)
 type assembler interface {
 	WriteStart(w io.Writer) error
@@ -23,7 +22,6 @@ type result struct {
 	data  any
 }
 
-// --- The Universal Concurrent Runner ---
 type concurrentRunner struct {
 	methodFactory func() *masker
 }
@@ -37,7 +35,7 @@ func (cr *concurrentRunner) Run(w io.Writer, crr chunkReader, a assembler) error
 	jobs := make(chan job)
 	results := make(chan result)
 	var wg sync.WaitGroup
-	for i := 0; i < numWorkers; i++ {
+	for range numWorkers {
 		wg.Add(1)
 		go cr.worker(&wg, jobs, results)
 	}
@@ -95,7 +93,6 @@ func (cr *concurrentRunner) worker(wg *sync.WaitGroup, jobs <-chan job, results 
 	}
 }
 
-// --- Generic Recursive Masking Logic for Workers ---
 func recursiveMask(m *masker, data any) any {
 	switch v := data.(type) {
 	case json.Number, string, bool, nil:

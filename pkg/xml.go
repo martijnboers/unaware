@@ -8,13 +8,10 @@ import (
 	"strings"
 )
 
-// xmlProcessor is an unexported, internal struct that implements the processor interface for XML.
 type xmlProcessor struct {
-	// methodFactory creates new, thread-safe masker instances for each worker.
 	methodFactory func() *masker
 }
 
-// newXMLProcessor is the internal constructor for the xmlProcessor.
 func newXMLProcessor(strategy MaskingStrategy) *xmlProcessor {
 	return &xmlProcessor{
 		methodFactory: func() *masker {
@@ -23,21 +20,14 @@ func newXMLProcessor(strategy MaskingStrategy) *xmlProcessor {
 	}
 }
 
-// Process acts as the foreman for XML processing, deciding which strategy to use.
 func (xp *xmlProcessor) Process(r io.Reader, w io.Writer) error {
-	// We use a TeeReader to buffer the start of the stream for pattern detection.
 	var buf bytes.Buffer
 	tee := io.TeeReader(r, &buf)
 	decoder := xml.NewDecoder(tee)
-
-	// --- Detect if the XML is a "list" of repeating elements ---
 	root, _, _, ok := detectXMLListPattern(decoder)
-
-	// Create a reader that prepends the consumed bytes, ensuring the next step sees the full stream.
 	combinedReader := io.MultiReader(&buf, r)
 
 	if ok {
-		// Pattern found! Use the high-performance concurrent runner.
 		runner := newConcurrentRunner(xp.methodFactory)
 		chunkDecoder := xml.NewDecoder(combinedReader)
 		chunkReader := xp.createXMLChunkReader(chunkDecoder, root.Name)
@@ -45,13 +35,10 @@ func (xp *xmlProcessor) Process(r io.Reader, w io.Writer) error {
 		return runner.Run(w, chunkReader, assembler)
 	}
 
-	// Pattern not found, fall back to the safe, single-threaded streamer.
 	serialDecoder := xml.NewDecoder(combinedReader)
 	return xp.processSerially(serialDecoder, w)
 }
 
-// --- xmlAssembler Implementation ---
-// xmlAssembler knows how to write masked map chunks back into valid XML format.
 type xmlAssembler struct {
 	Root    xml.StartElement
 	encoder *xml.Encoder
@@ -71,7 +58,6 @@ func (a *xmlAssembler) WriteItem(w io.Writer, item any, isFirst bool) error {
 	if !ok {
 		return fmt.Errorf("xml assembler expected map[string]any, but got %T", item)
 	}
-	// The map key is the element name, the value is the content map.
 	for key, val := range itemMap {
 		if valMap, ok := val.(map[string]any); ok {
 			return mapToXML(key, valMap, a.encoder)
@@ -87,20 +73,17 @@ func (a *xmlAssembler) WriteEnd(w io.Writer) error {
 	return a.encoder.Flush()
 }
 
-// mapToXML recursively writes a map back into valid XML tokens.
 func mapToXML(key string, m map[string]any, enc *xml.Encoder) error {
 	start := xml.StartElement{Name: xml.Name{Local: key}}
-	// Extract and add attributes from the map
 	for k, v := range m {
-		if strings.HasPrefix(k, "-") {
-			attrName := strings.TrimPrefix(k, "-")
+		if after, ok := strings.CutPrefix(k, "-"); ok {
+			attrName := after
 			start.Attr = append(start.Attr, xml.Attr{Name: xml.Name{Local: attrName}, Value: fmt.Sprintf("%v", v)})
 		}
 	}
 	if err := enc.EncodeToken(start); err != nil {
 		return err
 	}
-	// Handle character data content first
 	if text, ok := m["#text"]; ok {
 		if err := enc.EncodeToken(xml.CharData(fmt.Sprintf("%v", text))); err != nil {
 			return err
@@ -131,9 +114,6 @@ func mapToXML(key string, m map[string]any, enc *xml.Encoder) error {
 	return enc.EncodeToken(start.End())
 }
 
-// --- XML Detection and Chunking Logic ---
-
-// detectXMLListPattern is a heuristic to check for a root element with repeating children.
 func detectXMLListPattern(decoder *xml.Decoder) (xml.StartElement, xml.StartElement, xml.StartElement, bool) {
 	var root, firstChild, secondChild xml.StartElement
 	depth := 0
@@ -145,9 +125,10 @@ func detectXMLListPattern(decoder *xml.Decoder) (xml.StartElement, xml.StartElem
 		switch se := token.(type) {
 		case xml.StartElement:
 			depth++
-			if depth == 1 {
+			switch depth {
+			case 1:
 				root = se.Copy()
-			} else if depth == 2 {
+			case 2:
 				if firstChild.Name.Local == "" {
 					firstChild = se.Copy()
 				} else {
@@ -167,7 +148,6 @@ func detectXMLListPattern(decoder *xml.Decoder) (xml.StartElement, xml.StartElem
 	}
 }
 
-// createXMLChunkReader creates the "Adaptor Tool" for XML.
 func (xp *xmlProcessor) createXMLChunkReader(decoder *xml.Decoder, rootName xml.Name) chunkReader {
 	var started bool
 	return func() (any, error) {
@@ -200,7 +180,6 @@ func (xp *xmlProcessor) createXMLChunkReader(decoder *xml.Decoder, rootName xml.
 	}
 }
 
-// decodeElementToMap reads one full XML element and converts it to a map[string]any.
 func decodeElementToMap(decoder *xml.Decoder, start xml.StartElement) (map[string]any, error) {
 	m := make(map[string]any)
 	for _, attr := range start.Attr {
@@ -240,9 +219,6 @@ func decodeElementToMap(decoder *xml.Decoder, start xml.StartElement) (map[strin
 	}
 }
 
-// --- Serial Fallback Logic ---
-
-// processSerially is the robust, single-threaded token streamer for XML.
 func (xp *xmlProcessor) processSerially(decoder *xml.Decoder, w io.Writer) error {
 	encoder := xml.NewEncoder(w)
 	encoder.Indent("", "  ")
