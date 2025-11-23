@@ -6,13 +6,9 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"runtime/pprof"
 
 	"unaware/pkg"
 )
-
-var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to `file`")
-var memprofile = flag.String("memprofile", "", "write memory profile to `file`")
 
 func main() {
 	flag.Usage = func() {
@@ -26,24 +22,6 @@ func main() {
 	inputFile := flag.String("in", "", "Input file path (default: stdin)")
 	outputFile := flag.String("out", "", "Output file path (default: stdout)")
 	flag.Parse()
-
-	if *cpuprofile != "" {
-		f, err := os.Create(*cpuprofile)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, "could not create CPU profile: ", err)
-			os.Exit(1)
-		}
-		defer func() {
-			if err := f.Close(); err != nil {
-				fmt.Fprintf(os.Stderr, "error closing cpu profile file: %v\n", err)
-			}
-		}()
-		if err := pprof.StartCPUProfile(f); err != nil {
-			fmt.Fprintln(os.Stderr, "could not start CPU profile: ", err)
-			os.Exit(1)
-		}
-		defer pprof.StopCPUProfile()
-	}
 
 	var strategy pkg.MaskingStrategy
 	switch *methodFlag {
@@ -106,23 +84,6 @@ func main() {
 	if outputCloser != nil {
 		if err := outputCloser.Close(); err != nil {
 			fmt.Fprintf(os.Stderr, "error closing output file: %v\n", err)
-			os.Exit(1)
-		}
-	}
-
-	if *memprofile != "" {
-		f, err := os.Create(*memprofile)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, "could not create memory profile: ", err)
-			os.Exit(1)
-		}
-		defer func() {
-			if err := f.Close(); err != nil {
-				fmt.Fprintf(os.Stderr, "error closing memory profile file: %v\n", err)
-			}
-		}()
-		if err := pprof.WriteHeapProfile(f); err != nil {
-			fmt.Fprintln(os.Stderr, "could not write memory profile: ", err)
 			os.Exit(1)
 		}
 	}
