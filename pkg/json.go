@@ -9,13 +9,17 @@ import (
 
 type jsonProcessor struct {
 	methodFactory func() *masker
+	include       []string
+	exclude       []string
 }
 
-func newJSONProcessor(strategy MaskingStrategy) *jsonProcessor {
+func newJSONProcessor(strategy MaskingStrategy, include, exclude []string) *jsonProcessor {
 	return &jsonProcessor{
 		methodFactory: func() *masker {
 			return newMasker(strategy)
 		},
+		include: include,
+		exclude: exclude,
 	}
 }
 
@@ -30,7 +34,7 @@ func (jp *jsonProcessor) Process(r io.Reader, w io.Writer, cpuCount int) error {
 	}
 
 	if firstChar == '[' {
-		runner := newConcurrentRunner(jp.methodFactory, cpuCount)
+		runner := newConcurrentRunner(jp.methodFactory, cpuCount, jp.include, jp.exclude)
 		decoder := json.NewDecoder(br)
 		decoder.UseNumber()
 		_, _ = decoder.Token()
@@ -120,7 +124,7 @@ func (jp *jsonProcessor) processSerially(r io.Reader, w io.Writer) error {
 	decoder.UseNumber()
 	state := &state{wr: w, level: 0, indent: "  ", newline: "\n"}
 	serialMasker := jp.methodFactory()
-	return jp.processStream(decoder, state, serialMasker)
+	return jp.processStream(decoder, state, serialMasker, "")
 }
 
 type state struct {
@@ -132,7 +136,7 @@ type state struct {
 func (s *state) Indent()   { s.level++ }
 func (s *state) Unindent() { s.level-- }
 
-func (jp *jsonProcessor) processStream(dec *json.Decoder, s *state, m *masker) error {
+func (jp *jsonProcessor) processStream(dec *json.Decoder, s *state, m *masker, key string) error {
 	t, err := dec.Token()
 	if err == io.EOF {
 		return nil
@@ -148,18 +152,23 @@ func (jp *jsonProcessor) processStream(dec *json.Decoder, s *state, m *masker) e
 				return err
 			}
 			s.Indent()
-			return jp.processObject(dec, s, m)
+			return jp.processObject(dec, s, m, key)
 		case '[':
 			if _, err := io.WriteString(s.wr, "["); err != nil {
 				return err
 			}
 			s.Indent()
-			return jp.processArray(dec, s, m)
+			return jp.processArray(dec, s, m, key)
 		default:
 			return fmt.Errorf("unexpected delimiter: %v", token)
 		}
 	default:
-		maskedValue := m.mask(t)
+		var maskedValue any
+		if shouldMask(key, jp.include, jp.exclude) {
+			maskedValue = m.mask(t)
+		} else {
+			maskedValue = t
+		}
 		jsonBytes, err := json.Marshal(maskedValue)
 		if err != nil {
 			return err
@@ -168,7 +177,8 @@ func (jp *jsonProcessor) processStream(dec *json.Decoder, s *state, m *masker) e
 		return err
 	}
 }
-func (jp *jsonProcessor) processObject(dec *json.Decoder, s *state, m *masker) error {
+
+func (jp *jsonProcessor) processObject(dec *json.Decoder, s *state, m *masker, parentKey string) error {
 	isFirst := true
 	for {
 		t, err := dec.Token()
@@ -198,6 +208,10 @@ func (jp *jsonProcessor) processObject(dec *json.Decoder, s *state, m *masker) e
 		if !ok {
 			return fmt.Errorf("expected string key in object, got %T", t)
 		}
+		fullKey := key
+		if parentKey != "" {
+			fullKey = parentKey + "." + key
+		}
 		keyBytes, err := json.Marshal(key)
 		if err != nil {
 			return err
@@ -208,12 +222,12 @@ func (jp *jsonProcessor) processObject(dec *json.Decoder, s *state, m *masker) e
 		if _, err := io.WriteString(s.wr, ": "); err != nil {
 			return err
 		}
-		if err := jp.processStream(dec, s, m); err != nil {
+		if err := jp.processStream(dec, s, m, fullKey); err != nil {
 			return err
 		}
 	}
 }
-func (jp *jsonProcessor) processArray(dec *json.Decoder, s *state, m *masker) error {
+func (jp *jsonProcessor) processArray(dec *json.Decoder, s *state, m *masker, key string) error {
 	isFirst := true
 	for {
 		if !dec.More() {
@@ -239,7 +253,7 @@ func (jp *jsonProcessor) processArray(dec *json.Decoder, s *state, m *masker) er
 		if _, err := io.WriteString(s.wr, s.newline+strings.Repeat(s.indent, s.level)); err != nil {
 			return err
 		}
-		if err := jp.processStream(dec, s, m); err != nil {
+		if err := jp.processStream(dec, s, m, key); err != nil {
 			return err
 		}
 	}

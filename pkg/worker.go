@@ -24,10 +24,17 @@ type result struct {
 type concurrentRunner struct {
 	methodFactory func() *masker
 	cpuCount      int
+	include       []string
+	exclude       []string
 }
 
-func newConcurrentRunner(factory func() *masker, cpuCount int) *concurrentRunner {
-	return &concurrentRunner{methodFactory: factory, cpuCount: cpuCount}
+func newConcurrentRunner(factory func() *masker, cpuCount int, include, exclude []string) *concurrentRunner {
+	return &concurrentRunner{
+		methodFactory: factory,
+		cpuCount:      cpuCount,
+		include:       include,
+		exclude:       exclude,
+	}
 }
 
 func (cr *concurrentRunner) Run(w io.Writer, crr chunkReader, a assembler) error {
@@ -88,27 +95,37 @@ func (cr *concurrentRunner) worker(wg *sync.WaitGroup, jobs <-chan job, results 
 	defer wg.Done()
 	workerMasker := cr.methodFactory()
 	for j := range jobs {
-		results <- result{index: j.index, data: recursiveMask(workerMasker, j.data)}
+		results <- result{index: j.index, data: cr.recursiveMask(workerMasker, "", j.data)}
 	}
 }
 
-func recursiveMask(m *masker, data any) any {
+func (cr *concurrentRunner) recursiveMask(m *masker, key string, data any) any {
 	switch v := data.(type) {
 	case json.Number, string, bool, nil:
-		return m.mask(v)
+		if shouldMask(key, cr.include, cr.exclude) {
+			return m.mask(v)
+		}
+		return v
 	case map[string]any:
 		maskedMap := make(map[string]any, len(v))
-		for key, value := range v {
-			maskedMap[key] = recursiveMask(m, value)
+		for k, value := range v {
+			fullKey := k
+			if key != "" {
+				fullKey = key + "." + k
+			}
+			maskedMap[k] = cr.recursiveMask(m, fullKey, value)
 		}
 		return maskedMap
 	case []any:
 		maskedSlice := make([]any, len(v))
 		for i, value := range v {
-			maskedSlice[i] = recursiveMask(m, value)
+			maskedSlice[i] = cr.recursiveMask(m, key, value)
 		}
 		return maskedSlice
 	default:
-		return m.mask(v)
+		if shouldMask(key, cr.include, cr.exclude) {
+			return m.mask(v)
+		}
+		return v
 	}
 }
