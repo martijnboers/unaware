@@ -3,7 +3,6 @@ package pkg
 import (
 	"encoding/json"
 	"io"
-	"runtime"
 	"sync"
 )
 
@@ -24,18 +23,18 @@ type result struct {
 
 type concurrentRunner struct {
 	methodFactory func() *masker
+	cpuCount      int
 }
 
-func newConcurrentRunner(factory func() *masker) *concurrentRunner {
-	return &concurrentRunner{methodFactory: factory}
+func newConcurrentRunner(factory func() *masker, cpuCount int) *concurrentRunner {
+	return &concurrentRunner{methodFactory: factory, cpuCount: cpuCount}
 }
 
 func (cr *concurrentRunner) Run(w io.Writer, crr chunkReader, a assembler) error {
-	numWorkers := runtime.NumCPU()
 	jobs := make(chan job)
 	results := make(chan result)
 	var wg sync.WaitGroup
-	for range numWorkers {
+	for range cr.cpuCount {
 		wg.Add(1)
 		go cr.worker(&wg, jobs, results)
 	}

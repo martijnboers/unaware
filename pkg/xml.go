@@ -20,7 +20,7 @@ func newXMLProcessor(strategy MaskingStrategy) *xmlProcessor {
 	}
 }
 
-func (xp *xmlProcessor) Process(r io.Reader, w io.Writer) error {
+func (xp *xmlProcessor) Process(r io.Reader, w io.Writer, cpuCount int) error {
 	var buf bytes.Buffer
 	tee := io.TeeReader(r, &buf)
 	decoder := xml.NewDecoder(tee)
@@ -28,7 +28,7 @@ func (xp *xmlProcessor) Process(r io.Reader, w io.Writer) error {
 	combinedReader := io.MultiReader(&buf, r)
 
 	if ok {
-		runner := newConcurrentRunner(xp.methodFactory)
+		runner := newConcurrentRunner(xp.methodFactory, cpuCount)
 		chunkDecoder := xml.NewDecoder(combinedReader)
 		chunkReader := xp.createXMLChunkReader(chunkDecoder, root.Name)
 		assembler := &xmlAssembler{Root: root}

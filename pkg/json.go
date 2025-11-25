@@ -19,7 +19,7 @@ func newJSONProcessor(strategy MaskingStrategy) *jsonProcessor {
 	}
 }
 
-func (jp *jsonProcessor) Process(r io.Reader, w io.Writer) error {
+func (jp *jsonProcessor) Process(r io.Reader, w io.Writer, cpuCount int) error {
 	br := newPeekingReader(r)
 	firstChar, err := br.PeekFirstChar()
 	if err == io.EOF {
@@ -30,7 +30,7 @@ func (jp *jsonProcessor) Process(r io.Reader, w io.Writer) error {
 	}
 
 	if firstChar == '[' {
-		runner := newConcurrentRunner(jp.methodFactory)
+		runner := newConcurrentRunner(jp.methodFactory, cpuCount)
 		decoder := json.NewDecoder(br)
 		decoder.UseNumber()
 		_, _ = decoder.Token()

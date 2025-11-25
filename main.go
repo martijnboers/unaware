@@ -21,6 +21,7 @@ func main() {
 	methodFlag := flag.String("method", "random", "Method of masking (random or hashed)")
 	inputFile := flag.String("in", "", "Input file path (default: stdin)")
 	outputFile := flag.String("out", "", "Output file path (default: stdout)")
+	cpuCount := flag.Int("cpu", 4, "Numbers of cpu cores used")
 	flag.Parse()
 
 	var strategy pkg.MaskingStrategy
@@ -71,7 +72,7 @@ func main() {
 		writer = f
 	}
 
-	if err := pkg.Start(*format, reader, writer, strategy); err != nil {
+	if err := pkg.Start(*format, *cpuCount, reader, writer, strategy); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		// Clean up the potentially partially written file on error
 		if outputCloser != nil {

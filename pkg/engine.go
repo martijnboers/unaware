@@ -21,10 +21,10 @@ import (
 )
 
 type processor interface {
-	Process(r io.Reader, w io.Writer) error
+	Process(r io.Reader, w io.Writer, cpuCount int) error
 }
 
-func Start(format string, r io.Reader, w io.Writer, strategy MaskingStrategy) error {
+func Start(format string, cpuCount int, r io.Reader, w io.Writer, strategy MaskingStrategy) error {
 	var p processor
 	switch format {
 	case "json":
@@ -35,7 +35,7 @@ func Start(format string, r io.Reader, w io.Writer, strategy MaskingStrategy) er
 		return fmt.Errorf("unsupported format: %s", format)
 	}
 
-	return p.Process(r, w)
+	return p.Process(r, w, cpuCount)
 }
 
 type seeder interface {

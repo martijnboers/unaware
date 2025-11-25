@@ -95,7 +95,7 @@ func TestJSONProcessing_Structured(t *testing.T) {
 	require.NoError(t, err)
 
 	var buf bytes.Buffer
-	err = pkg.Start("json", bytes.NewReader(inputBytes), &buf, pkg.Hashed(salt))
+	err = pkg.Start("json", 1, bytes.NewReader(inputBytes), &buf, pkg.Hashed(salt))
 	require.NoError(t, err)
 
 	var output ComplexJSON
@@ -144,7 +144,7 @@ func TestJSONStreamingArray(t *testing.T) {
 	]`
 
 	var buf bytes.Buffer
-	err := pkg.Start("json", strings.NewReader(input), &buf, pkg.Hashed(salt))
+	err := pkg.Start("json", 1, strings.NewReader(input), &buf, pkg.Hashed(salt))
 	require.NoError(t, err)
 
 	output := buf.String()
@@ -158,7 +158,7 @@ func TestJSONStreamingArray(t *testing.T) {
 
 func TestEmptyReader(t *testing.T) {
 	var buf bytes.Buffer
-	err := pkg.Start("json", strings.NewReader(""), &buf, pkg.Random())
+	err := pkg.Start("json", 1, strings.NewReader(""), &buf, pkg.Random())
 	require.NoError(t, err)
 	assert.Equal(t, "", buf.String())
 }
@@ -166,7 +166,7 @@ func TestEmptyReader(t *testing.T) {
 func TestReaderError(t *testing.T) {
 	errorReader := &errorReader{}
 	var buf bytes.Buffer
-	err := pkg.Start("json", errorReader, &buf, pkg.Random())
+	err := pkg.Start("json", 1, errorReader, &buf, pkg.Random())
 	require.Error(t, err)
 }
 
