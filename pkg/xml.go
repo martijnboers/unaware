@@ -10,13 +10,17 @@ import (
 
 type xmlProcessor struct {
 	methodFactory func() *masker
+	include       []string
+	exclude       []string
 }
 
-func newXMLProcessor(strategy MaskingStrategy) *xmlProcessor {
+func newXMLProcessor(strategy MaskingStrategy, include, exclude []string) *xmlProcessor {
 	return &xmlProcessor{
 		methodFactory: func() *masker {
 			return newMasker(strategy)
 		},
+		include: include,
+		exclude: exclude,
 	}
 }
 
@@ -28,7 +32,8 @@ func (xp *xmlProcessor) Process(r io.Reader, w io.Writer, cpuCount int) error {
 	combinedReader := io.MultiReader(&buf, r)
 
 	if ok {
-		runner := newConcurrentRunner(xp.methodFactory, cpuCount)
+		runner := newConcurrentRunner(xp.methodFactory, cpuCount, xp.include, xp.exclude)
+		runner.Root = root.Name.Local
 		chunkDecoder := xml.NewDecoder(combinedReader)
 		chunkReader := xp.createXMLChunkReader(chunkDecoder, root.Name)
 		assembler := &xmlAssembler{Root: root}
@@ -223,6 +228,7 @@ func (xp *xmlProcessor) processSerially(decoder *xml.Decoder, w io.Writer) error
 	encoder := xml.NewEncoder(w)
 	encoder.Indent("", "  ")
 	serialMasker := xp.methodFactory()
+	var path []string
 	for {
 		token, err := decoder.Token()
 		if err == io.EOF {
@@ -233,11 +239,15 @@ func (xp *xmlProcessor) processSerially(decoder *xml.Decoder, w io.Writer) error
 		}
 		switch se := token.(type) {
 		case xml.StartElement:
+			path = append(path, se.Name.Local)
 			startElem := se.Copy()
 			for i := range startElem.Attr {
 				attr := &startElem.Attr[i]
-				maskedValue := serialMasker.mask(attr.Value)
-				attr.Value = fmt.Sprintf("%v", maskedValue)
+				fullKey := strings.Join(path, ".") + "." + attr.Name.Local
+				if shouldMask(fullKey, xp.include, xp.exclude) {
+					maskedValue := serialMasker.mask(attr.Value)
+					attr.Value = fmt.Sprintf("%v", maskedValue)
+				}
 			}
 			if err := encoder.EncodeToken(startElem); err != nil {
 				return err
@@ -245,15 +255,29 @@ func (xp *xmlProcessor) processSerially(decoder *xml.Decoder, w io.Writer) error
 		case xml.CharData:
 			trimmedData := strings.TrimSpace(string(se))
 			if len(trimmedData) > 0 {
-				maskedValue := serialMasker.mask(trimmedData)
-				maskedString := fmt.Sprintf("%v", maskedValue)
-				if err := encoder.EncodeToken(xml.CharData(maskedString)); err != nil {
-					return err
+				fullKey := strings.Join(path, ".")
+				if shouldMask(fullKey, xp.include, xp.exclude) {
+					maskedValue := serialMasker.mask(trimmedData)
+					maskedString := fmt.Sprintf("%v", maskedValue)
+					if err := encoder.EncodeToken(xml.CharData(maskedString)); err != nil {
+						return err
+					}
+				} else {
+					if err := encoder.EncodeToken(se); err != nil {
+						return err
+					}
 				}
 			} else {
 				if err := encoder.EncodeToken(se); err != nil {
 					return err
 				}
+			}
+		case xml.EndElement:
+			if len(path) > 0 {
+				path = path[:len(path)-1]
+			}
+			if err := encoder.EncodeToken(token); err != nil {
+				return err
 			}
 		default:
 			if err := encoder.EncodeToken(token); err != nil {

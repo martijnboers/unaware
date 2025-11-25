@@ -9,6 +9,7 @@ import (
 	"io"
 	"net"
 	"net/url"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -24,18 +25,37 @@ type processor interface {
 	Process(r io.Reader, w io.Writer, cpuCount int) error
 }
 
-func Start(format string, cpuCount int, r io.Reader, w io.Writer, strategy MaskingStrategy) error {
+func Start(format string, cpuCount int, r io.Reader, w io.Writer, strategy MaskingStrategy, include, exclude []string) error {
 	var p processor
 	switch format {
 	case "json":
-		p = newJSONProcessor(strategy)
+		p = newJSONProcessor(strategy, include, exclude)
 	case "xml":
-		p = newXMLProcessor(strategy)
+		p = newXMLProcessor(strategy, include, exclude)
 	default:
 		return fmt.Errorf("unsupported format: %s", format)
 	}
 
 	return p.Process(r, w, cpuCount)
+}
+
+func shouldMask(key string, include, exclude []string) bool {
+	if len(exclude) > 0 {
+		for _, pattern := range exclude {
+			if matched, _ := filepath.Match(pattern, key); matched {
+				return false
+			}
+		}
+	}
+	if len(include) > 0 {
+		for _, pattern := range include {
+			if matched, _ := filepath.Match(pattern, key); matched {
+				return true
+			}
+		}
+		return false
+	}
+	return true
 }
 
 type seeder interface {

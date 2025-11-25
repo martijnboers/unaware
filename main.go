@@ -10,6 +10,17 @@ import (
 	"unaware/pkg"
 )
 
+type stringSlice []string
+
+func (s *stringSlice) String() string {
+	return fmt.Sprintf("%v", *s)
+}
+
+func (s *stringSlice) Set(value string) error {
+	*s = append(*s, value)
+	return nil
+}
+
 func main() {
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Anonymize data in JSON and XML files by replacing values with realistic-looking fakes.\n\n")
@@ -22,6 +33,11 @@ func main() {
 	inputFile := flag.String("in", "", "Input file path (default: stdin)")
 	outputFile := flag.String("out", "", "Output file path (default: stdout)")
 	cpuCount := flag.Int("cpu", 4, "Numbers of cpu cores used")
+
+	var includePatterns, excludePatterns stringSlice
+	flag.Var(&includePatterns, "include", "Glob pattern to include keys for masking (can be specified multiple times)")
+	flag.Var(&excludePatterns, "exclude", "Glob pattern to exclude keys from masking (can be specified multiple times)")
+
 	flag.Parse()
 
 	var strategy pkg.MaskingStrategy
@@ -72,7 +88,7 @@ func main() {
 		writer = f
 	}
 
-	if err := pkg.Start(*format, *cpuCount, reader, writer, strategy); err != nil {
+	if err := pkg.Start(*format, *cpuCount, reader, writer, strategy, includePatterns, excludePatterns); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		// Clean up the potentially partially written file on error
 		if outputCloser != nil {

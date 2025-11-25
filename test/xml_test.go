@@ -65,7 +65,7 @@ func TestXMLProcessing_Structured(t *testing.T) {
 	inputWithHeader := append([]byte(xml.Header), inputBytes...)
 
 	var buf bytes.Buffer
-	err = pkg.Start("xml", 1, bytes.NewReader(inputWithHeader), &buf, pkg.Hashed(salt))
+	err = pkg.Start("xml", 1, bytes.NewReader(inputWithHeader), &buf, pkg.Hashed(salt), nil, nil)
 	require.NoError(t, err)
 
 	var output ComplexXML
@@ -104,7 +104,7 @@ func TestXMLStreaming(t *testing.T) {
 			</items>`
 
 	var buf bytes.Buffer
-	err := pkg.Start("xml", 1, strings.NewReader(input), &buf, pkg.Hashed(salt))
+	err := pkg.Start("xml", 1, strings.NewReader(input), &buf, pkg.Hashed(salt), nil, nil)
 	require.NoError(t, err)
 
 	output := buf.String()
