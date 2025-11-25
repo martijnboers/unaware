@@ -32,6 +32,8 @@ func Start(format string, cpuCount int, r io.Reader, w io.Writer, strategy Maski
 		p = newJSONProcessor(strategy, include, exclude)
 	case "xml":
 		p = newXMLProcessor(strategy, include, exclude)
+	case "csv":
+		p = newCSVProcessor(strategy, include, exclude)
 	default:
 		return fmt.Errorf("unsupported format: %s", format)
 	}
