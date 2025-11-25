@@ -1,6 +1,7 @@
 package pkg
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -34,30 +35,141 @@ func (jp *jsonProcessor) Process(r io.Reader, w io.Writer, cpuCount int) error {
 	}
 
 	if firstChar == '[' {
-		runner := newConcurrentRunner(jp.methodFactory, cpuCount, jp.include, jp.exclude)
-		decoder := json.NewDecoder(br)
-		decoder.UseNumber()
-		_, _ = decoder.Token()
-		chunkReader := func() (any, error) {
-			if !decoder.More() {
-				_, err := decoder.Token()
-				if err != nil && err != io.EOF {
-					return nil, err
-				}
-				return nil, io.EOF
-			}
-			var chunk any
-			err := decoder.Decode(&chunk)
-			return chunk, err
-		}
-		return runner.Run(w, chunkReader, &jsonAssembler{})
+		return jp.processRootArray(br, w, cpuCount)
 	}
-	return jp.processSerially(br, w)
+
+	return jp.processConcurrentObject(br, w, cpuCount)
 }
 
-type jsonAssembler struct{}
+func (jp *jsonProcessor) processRootArray(r io.Reader, w io.Writer, cpuCount int) error {
+	runner := newConcurrentRunner(jp.methodFactory, cpuCount, jp.include, jp.exclude)
+	decoder := json.NewDecoder(r)
+	decoder.UseNumber()
+	_, _ = decoder.Token() // consume '['
+	chunkReader := func() (any, error) {
+		if !decoder.More() {
+			_, err := decoder.Token()
+			if err != nil && err != io.EOF {
+				return nil, err
+			}
+			return nil, io.EOF
+		}
+		var chunk any
+		err := decoder.Decode(&chunk)
+		return chunk, err
+	}
+	return runner.Run(w, chunkReader, &jsonAssembler{isRootArray: true})
+}
 
-func (a *jsonAssembler) WriteStart(w io.Writer) error { _, err := w.Write([]byte("[\n")); return err }
+func (jp *jsonProcessor) processConcurrentObject(r io.Reader, w io.Writer, cpuCount int) error {
+	decoder := json.NewDecoder(r)
+	decoder.UseNumber()
+
+	if _, err := decoder.Token(); err != nil { // consume '{'
+		return err
+	}
+	if _, err := w.Write([]byte("{\n")); err != nil {
+		return err
+	}
+
+	isFirst := true
+	for decoder.More() {
+		if !isFirst {
+			if _, err := w.Write([]byte(",\n")); err != nil {
+				return err
+			}
+		}
+		isFirst = false
+
+		keyToken, err := decoder.Token()
+		if err != nil {
+			return err
+		}
+		key, ok := keyToken.(string)
+		if !ok {
+			return fmt.Errorf("expected string key, got %T", keyToken)
+		}
+
+		keyBytes, _ := json.Marshal(key)
+		if _, err := w.Write(keyBytes); err != nil {
+			return err
+		}
+		if _, err := w.Write([]byte(": ")); err != nil {
+			return err
+		}
+
+		// We decode the next value into json.RawMessage instead of a fully-parsed interface{}. 
+		// This buffers just this single value, allowing us to inspect its type 
+		// (e.g., to see if it's an array) without having to buffer the entire io.Reader. 
+		// This is a compromise that enables opportunistic concurrency for top-level arrays 
+		// in an object while maintaining a streaming approach for the overall structure.
+		var rawVal json.RawMessage
+		if err := decoder.Decode(&rawVal); err != nil {
+			return err
+		}
+
+		trimmedVal := bytes.TrimSpace(rawVal)
+		if len(trimmedVal) > 0 && trimmedVal[0] == '[' {
+			if _, err := w.Write([]byte("[\n")); err != nil {
+				return err
+			}
+			arrDecoder := json.NewDecoder(bytes.NewReader(trimmedVal))
+			arrDecoder.UseNumber()
+			_, _ = arrDecoder.Token()
+
+			runner := newConcurrentRunner(jp.methodFactory, cpuCount, jp.include, jp.exclude)
+			runner.Root = key
+			chunkReader := func() (any, error) {
+				if !arrDecoder.More() {
+					return nil, io.EOF
+				}
+				var chunk any
+				err := arrDecoder.Decode(&chunk)
+				return chunk, err
+			}
+			assembler := &jsonAssembler{}
+			if err := runner.Run(w, chunkReader, assembler); err != nil {
+				return err
+			}
+			if _, err := w.Write([]byte("\n]")); err != nil {
+				return err
+			}
+		} else {
+			valDecoder := json.NewDecoder(bytes.NewReader(rawVal))
+			valDecoder.UseNumber()
+			var val any
+			if err := valDecoder.Decode(&val); err != nil {
+				return err
+			}
+			maskedVal := jp.recursiveMask(jp.methodFactory(), key, val)
+			maskedBytes, err := json.MarshalIndent(maskedVal, "  ", "  ")
+			if err != nil {
+				return err
+			}
+			if _, err := w.Write(maskedBytes); err != nil {
+				return err
+			}
+		}
+	}
+
+	if _, err := w.Write([]byte("\n}")); err != nil {
+		return err
+	}
+	return nil
+}
+
+type jsonAssembler struct {
+	isRootArray bool
+}
+
+func (a *jsonAssembler) WriteStart(w io.Writer) error {
+	if a.isRootArray {
+		_, err := w.Write([]byte("[\n"))
+		return err
+	}
+	return nil
+}
+
 func (a *jsonAssembler) WriteItem(w io.Writer, item any, isFirst bool) error {
 	if !isFirst {
 		if _, err := w.Write([]byte(",\n")); err != nil {
@@ -65,10 +177,17 @@ func (a *jsonAssembler) WriteItem(w io.Writer, item any, isFirst bool) error {
 		}
 	}
 	encoder := json.NewEncoder(w)
-	encoder.SetIndent("", "  ")
+	encoder.SetIndent("  ", "  ")
 	return encoder.Encode(item)
 }
-func (a *jsonAssembler) WriteEnd(w io.Writer) error { _, err := w.Write([]byte("\n]\n")); return err }
+
+func (a *jsonAssembler) WriteEnd(w io.Writer) error {
+	if a.isRootArray {
+		_, err := w.Write([]byte("\n]\n"))
+		return err
+	}
+	return nil
+}
 
 type peekingReader struct {
 	r    io.Reader
@@ -119,142 +238,41 @@ func (pr *peekingReader) PeekFirstChar() (byte, error) {
 }
 func isWhitespace(c byte) bool { return c == ' ' || c == '\n' || c == '\r' || c == '\t' }
 
-func (jp *jsonProcessor) processSerially(r io.Reader, w io.Writer) error {
-	decoder := json.NewDecoder(r)
-	decoder.UseNumber()
-	state := &state{wr: w, level: 0, indent: "  ", newline: "\n"}
-	serialMasker := jp.methodFactory()
-	return jp.processStream(decoder, state, serialMasker, "")
-}
-
-type state struct {
-	wr              io.Writer
-	level           int
-	indent, newline string
-}
-
-func (s *state) Indent()   { s.level++ }
-func (s *state) Unindent() { s.level-- }
-
-func (jp *jsonProcessor) processStream(dec *json.Decoder, s *state, m *masker, key string) error {
-	t, err := dec.Token()
-	if err == io.EOF {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	switch token := t.(type) {
-	case json.Delim:
-		switch token {
-		case '{':
-			if _, err := io.WriteString(s.wr, "{"); err != nil {
-				return err
-			}
-			s.Indent()
-			return jp.processObject(dec, s, m, key)
-		case '[':
-			if _, err := io.WriteString(s.wr, "["); err != nil {
-				return err
-			}
-			s.Indent()
-			return jp.processArray(dec, s, m, key)
-		default:
-			return fmt.Errorf("unexpected delimiter: %v", token)
-		}
-	default:
-		var maskedValue any
+func (jp *jsonProcessor) recursiveMask(m *masker, key string, data any) any {
+	switch v := data.(type) {
+	case json.Number:
 		if shouldMask(key, jp.include, jp.exclude) {
-			maskedValue = m.mask(t)
-		} else {
-			maskedValue = t
-		}
-		jsonBytes, err := json.Marshal(maskedValue)
-		if err != nil {
-			return err
-		}
-		_, err = s.wr.Write(jsonBytes)
-		return err
-	}
-}
-
-func (jp *jsonProcessor) processObject(dec *json.Decoder, s *state, m *masker, parentKey string) error {
-	isFirst := true
-	for {
-		t, err := dec.Token()
-		if err != nil {
-			return err
-		}
-		if delim, ok := t.(json.Delim); ok && delim == '}' {
-			s.Unindent()
-			if !isFirst {
-				if _, err := io.WriteString(s.wr, s.newline+strings.Repeat(s.indent, s.level)); err != nil {
-					return err
-				}
+			s := v.String()
+			if strings.Contains(s, ".") {
+				parts := strings.Split(s, ".")
+				template := strings.Repeat("#", len(parts[0])) + "." + strings.Repeat("#", len(parts[1]))
+				return json.Number(m.faker.Numerify(template))
 			}
-			_, err = io.WriteString(s.wr, "}")
-			return err
+			return json.Number(m.faker.Numerify(strings.Repeat("#", len(s))))
 		}
-		if !isFirst {
-			if _, err := io.WriteString(s.wr, ","); err != nil {
-				return err
+		return v
+	case string, bool, nil:
+		if shouldMask(key, jp.include, jp.exclude) {
+			return m.mask(v)
+		}
+		return v
+	case map[string]any:
+		maskedMap := make(map[string]any, len(v))
+		for k, value := range v {
+			fullKey := k
+			if key != "" {
+				fullKey = key + "." + k
 			}
+			maskedMap[k] = jp.recursiveMask(m, fullKey, value)
 		}
-		isFirst = false
-		if _, err := io.WriteString(s.wr, s.newline+strings.Repeat(s.indent, s.level)); err != nil {
-			return err
+		return maskedMap
+	case []any:
+		maskedSlice := make([]any, len(v))
+		for i, value := range v {
+			maskedSlice[i] = jp.recursiveMask(m, key, value)
 		}
-		key, ok := t.(string)
-		if !ok {
-			return fmt.Errorf("expected string key in object, got %T", t)
-		}
-		fullKey := key
-		if parentKey != "" {
-			fullKey = parentKey + "." + key
-		}
-		keyBytes, err := json.Marshal(key)
-		if err != nil {
-			return err
-		}
-		if _, err := s.wr.Write(keyBytes); err != nil {
-			return err
-		}
-		if _, err := io.WriteString(s.wr, ": "); err != nil {
-			return err
-		}
-		if err := jp.processStream(dec, s, m, fullKey); err != nil {
-			return err
-		}
-	}
-}
-func (jp *jsonProcessor) processArray(dec *json.Decoder, s *state, m *masker, key string) error {
-	isFirst := true
-	for {
-		if !dec.More() {
-			_, err := dec.Token()
-			if err != nil {
-				return err
-			}
-			s.Unindent()
-			if !isFirst {
-				if _, err := io.WriteString(s.wr, s.newline+strings.Repeat(s.indent, s.level)); err != nil {
-					return err
-				}
-			}
-			_, err = io.WriteString(s.wr, "]")
-			return err
-		}
-		if !isFirst {
-			if _, err := io.WriteString(s.wr, ","); err != nil {
-				return err
-			}
-		}
-		isFirst = false
-		if _, err := io.WriteString(s.wr, s.newline+strings.Repeat(s.indent, s.level)); err != nil {
-			return err
-		}
-		if err := jp.processStream(dec, s, m, key); err != nil {
-			return err
-		}
+		return maskedSlice
+	default:
+		return v // Return unsupported types as is
 	}
 }

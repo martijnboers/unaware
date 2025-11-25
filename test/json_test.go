@@ -170,6 +170,34 @@ func TestReaderError(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestJSONStreamingNestedArray(t *testing.T) {
+	salt := []byte("streaming-nested-salt")
+	input := `{
+		"items": [
+			{"id": 1, "data": "first"},
+			{"id": 2, "data": "second"},
+			{"id": 3, "data": "third"}
+		]
+	}`
+
+	var buf bytes.Buffer
+	// Use 2 CPUs to ensure concurrency is tested
+	err := pkg.Start("json", 2, strings.NewReader(input), &buf, pkg.Hashed(salt), nil, nil)
+	require.NoError(t, err)
+
+	output := buf.String()
+	assert.Contains(t, output, `"items"`)
+	assert.Equal(t, 3, strings.Count(output, `"id"`))
+	assert.NotContains(t, output, "first")
+	assert.NotContains(t, output, "second")
+	assert.NotContains(t, output, "third")
+
+	// check valid json
+	var result map[string]any
+	err = json.Unmarshal([]byte(output), &result)
+	require.NoError(t, err, "Output should be valid JSON. Got: %s", output)
+}
+
 type errorReader struct{}
 
 func (r *errorReader) Read(p []byte) (n int, err error) {

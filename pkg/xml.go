@@ -24,22 +24,26 @@ func newXMLProcessor(strategy MaskingStrategy, include, exclude []string) *xmlPr
 	}
 }
 
+// Process determines the XML processing strategy. Unlike the JSON processor, this
+// implementation is limited to detecting lists of repeating elements that are direct
+// children of the root element.
 func (xp *xmlProcessor) Process(r io.Reader, w io.Writer, cpuCount int) error {
 	var buf bytes.Buffer
 	tee := io.TeeReader(r, &buf)
 	decoder := xml.NewDecoder(tee)
-	root, _, _, ok := detectXMLListPattern(decoder)
+	root, firstChild, _, ok := detectXMLListPattern(decoder)
 	combinedReader := io.MultiReader(&buf, r)
 
 	if ok {
 		runner := newConcurrentRunner(xp.methodFactory, cpuCount, xp.include, xp.exclude)
 		runner.Root = root.Name.Local
 		chunkDecoder := xml.NewDecoder(combinedReader)
-		chunkReader := xp.createXMLChunkReader(chunkDecoder, root.Name)
+		chunkReader := xp.createXMLChunkReader(chunkDecoder, root.Name, firstChild.Name)
 		assembler := &xmlAssembler{Root: root}
 		return runner.Run(w, chunkReader, assembler)
 	}
 
+	// Fallback to a fully streaming serial processor
 	serialDecoder := xml.NewDecoder(combinedReader)
 	return xp.processSerially(serialDecoder, w)
 }
@@ -94,7 +98,6 @@ func mapToXML(key string, m map[string]any, enc *xml.Encoder) error {
 			return err
 		}
 	}
-	// Recursively handle child elements
 	for k, v := range m {
 		if !strings.HasPrefix(k, "-") && k != "#text" {
 			if slice, ok := v.([]any); ok {
@@ -109,7 +112,7 @@ func mapToXML(key string, m map[string]any, enc *xml.Encoder) error {
 				if err := mapToXML(k, nestedMap, enc); err != nil {
 					return err
 				}
-			} else { // Handle simple key-value pairs
+			} else {
 				if err := mapToXML(k, map[string]any{"#text": v}, enc); err != nil {
 					return err
 				}
@@ -153,13 +156,13 @@ func detectXMLListPattern(decoder *xml.Decoder) (xml.StartElement, xml.StartElem
 	}
 }
 
-func (xp *xmlProcessor) createXMLChunkReader(decoder *xml.Decoder, rootName xml.Name) chunkReader {
+func (xp *xmlProcessor) createXMLChunkReader(decoder *xml.Decoder, rootName, listItemName xml.Name) chunkReader {
 	var started bool
 	return func() (any, error) {
 		for {
 			token, err := decoder.Token()
 			if err != nil {
-				return nil, err // Includes io.EOF
+				return nil, err
 			}
 			switch se := token.(type) {
 			case xml.StartElement:
@@ -169,16 +172,16 @@ func (xp *xmlProcessor) createXMLChunkReader(decoder *xml.Decoder, rootName xml.
 						continue
 					}
 				}
-				// We found a child element. Decode it and its contents into a map.
-				elementMap, err := decodeElementToMap(decoder, se)
-				if err != nil {
-					return nil, err
+				if se.Name.Local == listItemName.Local {
+					elementMap, err := decodeElementToMap(decoder, se)
+					if err != nil {
+						return nil, err
+					}
+					return map[string]any{se.Name.Local: elementMap}, nil
 				}
-				// Wrap it in a map to preserve the element name for the assembler.
-				return map[string]any{se.Name.Local: elementMap}, nil
 			case xml.EndElement:
 				if se.Name.Local == rootName.Local && se.Name.Space == rootName.Space {
-					return nil, io.EOF // End of the root element
+					return nil, io.EOF
 				}
 			}
 		}
