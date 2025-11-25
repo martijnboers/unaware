@@ -3,7 +3,6 @@ package test
 import (
 	"bytes"
 	"encoding/json"
-	"io"
 	"strings"
 	"testing"
 
@@ -196,10 +195,4 @@ func TestJSONStreamingNestedArray(t *testing.T) {
 	var result map[string]any
 	err = json.Unmarshal([]byte(output), &result)
 	require.NoError(t, err, "Output should be valid JSON. Got: %s", output)
-}
-
-type errorReader struct{}
-
-func (r *errorReader) Read(p []byte) (n int, err error) {
-	return 0, io.ErrUnexpectedEOF
 }

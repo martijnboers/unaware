@@ -1,11 +1,11 @@
 ## Description
-`unaware` is a command-line tool for masking sensitive data within XML and JSON files. It processes data from files or `stdin` and anonymizes specified property values. Masked values mimick the length and appearance of the original data types.
+`unaware` is a command-line tool for masking sensitive data within JSON, XML, and CSV files. It processes data from files or `stdin` and anonymizes specified property values. Masked values mimick the length and appearance of the original data types.
 
 The program is a cross-platform, statically linked binary with no external dependencies. It leverages streaming and concurrency to efficiently process large files entirely offline.
 
 ### Installation
 
-Build the binary from source:
+Build the program from source:
 ```shell
 go build -o unaware main.go
 ```
@@ -13,16 +13,19 @@ Alternatively, check the releases page for pre-built binaries.
 
 ### Usage
 ```
-Anonymize data in JSON and XML files by replacing values with realistic-looking fakes.
+Anonymize data in JSON, XML, and CSV files by replacing values with realistic-looking fakes.
 
-Use the -method hashed option to preserve relationships by ensuring identical input values get the same masked output value. By default every run uses a random salt, use STATIC_SALT=test123 environment variable for consistent masking.
+Use the -method hashed option to preserve relationships by ensuring identical
+input values get the same masked output value. By default every run uses a
+random salt, use STATIC_SALT=test123 environment variable for consistent
+masking.
 
   -cpu int
     	Numbers of cpu cores used (default 4)
   -exclude value
     	Glob pattern to exclude keys from masking (can be specified multiple times)
   -format string
-    	The format of the input data (json or xml) (default "json")
+    	The format of the input data (json, xml, or csv) (default "json")
   -in string
     	Input file path (default: stdin)
   -include value
@@ -52,11 +55,11 @@ STATIC_SALT=testing123 ./unaware -in source.json
 
 ### Advanced Filtering
 
-You can combine `-include` and `-exclude` flags for fine-grained control over what gets masked. The logic follows these simple rules:
+You can combine `-include` and `-exclude` flags for control over what gets masked. The logic follows these simple rules:
 
 1.  **Default (No Flags):** Mask everything.
-2.  **Using `-exclude` only:** Mask everything *except* fields matching the exclude patterns (a blacklist).
-3.  **Using `-include` only:** Mask *only* the fields matching the include patterns (a whitelist).
+2.  **Using `-exclude` only:** Mask everything *except* fields matching the exclude patterns.
+3.  **Using `-include` only:** Mask *only* the fields matching the include patterns.
 4.  **Using Both:** First, select only the fields matching the `-include` patterns, and *then* from that selection, remove any fields that match the `-exclude` pattern. **Exclude always wins.**
 
 This allows for combinations. For example, given `data.json`:
@@ -81,7 +84,7 @@ This allows for combinations. For example, given `data.json`:
 
 **Command:**
 ```shell
-./unaware -in data.json -include 'user.personal_info.*' -include 'session.ip_address' -exclude 'user.personal_info.name'
+./unaware -in data.json -include 'user.personal_info.*' -include 'session.ip_address' -exclude 'user.personal_info.subscriber'
 ```
 
 **Explanation:**
