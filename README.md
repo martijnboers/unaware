@@ -1,5 +1,5 @@
 ## Description
-`unaware` is a command-line tool for masking sensitive data within XML and JSON files. It processes data from files or `stdin` and anonymizes specified property values. Masked values mimick the length and appearance of the original data types.
+`unaware` is a command-line tool for masking sensitive data within JSON, XML, and CSV files. It processes data from files or `stdin` and anonymizes specified property values. Masked values mimick the length and appearance of the original data types.
 
 The program is a cross-platform, statically linked binary with no external dependencies. It leverages streaming and concurrency to efficiently process large files entirely offline.
 
@@ -13,7 +13,7 @@ Alternatively, check the releases page for pre-built binaries.
 
 ### Usage
 ```
-Anonymize data in JSON and XML files by replacing values with realistic-looking fakes.
+Anonymize data in JSON, XML, and CSV files by replacing values with realistic-looking fakes.
 
 Use the -method hashed option to preserve relationships by ensuring identical input values get the same masked output value. By default every run uses a random salt, use STATIC_SALT=test123 environment variable for consistent masking.
 
@@ -22,7 +22,7 @@ Use the -method hashed option to preserve relationships by ensuring identical in
   -exclude value
     	Glob pattern to exclude keys from masking (can be specified multiple times)
   -format string
-    	The format of the input data (json or xml) (default "json")
+    	The format of the input data (json, xml, or csv) (default "json")
   -in string
     	Input file path (default: stdin)
   -include value
