@@ -15,12 +15,7 @@ jobs:
     strategy:
       matrix:
         goos: [linux, windows, darwin]
-        goarch: ["386", amd64, arm64]
-        exclude:
-          - goarch: "386"
-            goos: darwin
-          - goarch: arm64
-            goos: windows
+        goarch: [ amd64, arm64]
     steps:
     - uses: actions/checkout@v4
     - uses: wangyoucao577/go-release-action@v1
@@ -28,7 +23,8 @@ jobs:
         github_token: ${{ secrets.GITHUB_TOKEN }}
         goos: ${{ matrix.goos }}
         goarch: ${{ matrix.goarch }}
-        goversion: "https://dl.google.com/go/go1.25.2.linux-amd64.tar.gz"
-        # project_path: "./cmd/test-binary"
+        goversion: "1.25.2"
         binary_name: "unaware"
-        extra_files: LICENSE README.md
+        compress_assets: "OFF"
+        executable_compression: "upx"
+        pre_command: export CGO_ENABLED=0
