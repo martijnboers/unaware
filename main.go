@@ -24,11 +24,13 @@ func (s *stringSlice) Set(value string) error {
 func main() {
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Anonymize data in JSON and XML files by replacing values with realistic-looking fakes.\n\n")
-		fmt.Fprintf(os.Stderr, "Use the -method hashed option to preserve relationships by ensuring identical input values get the same masked output value. By default every run uses a random salt, use STATIC_SALT=test123 environment variable for consistent masking.\n\n")
+		fmt.Fprintf(os.Stderr, "Use the -method hashed option to preserve relationships by ensuring identical input values get the same masked output value. \n\n")
+		fmt.Fprintf(os.Stderr, "By default every run uses a random salt, use STATIC_SALT=test123 environment variable for consistent masking.")
+
 		flag.PrintDefaults()
 	}
 
-	format := flag.String("format", "json", "The format of the input data (json or xml)")
+	format := flag.String("format", "json", "The format of the input data (json, xml, csv, or text)")
 	methodFlag := flag.String("method", "random", "Method of masking (random or hashed)")
 	inputFile := flag.String("in", "", "Input file path (default: stdin)")
 	outputFile := flag.String("out", "", "Output file path (default: stdout)")

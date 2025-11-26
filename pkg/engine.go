@@ -34,6 +34,8 @@ func Start(format string, cpuCount int, r io.Reader, w io.Writer, strategy Maski
 		p = newXMLProcessor(strategy, include, exclude)
 	case "csv":
 		p = newCSVProcessor(strategy, include, exclude)
+	case "text":
+		p = newTextProcessor(strategy, include, exclude)
 	default:
 		return fmt.Errorf("unsupported format: %s", format)
 	}

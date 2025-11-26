@@ -13,7 +13,7 @@ Alternatively, check the releases page for pre-built binaries.
 
 ### Usage
 ```
-Anonymize data in JSON, XML, and CSV files by replacing values with realistic-looking fakes.
+Anonymize data in JSON, XML, and CSV files by replacing values with realistic-looking alternatives.
 
 Use the -method hashed option to preserve relationships by ensuring identical
 input values get the same masked output value. By default every run uses a
@@ -25,7 +25,7 @@ masking.
   -exclude value
     	Glob pattern to exclude keys from masking (can be specified multiple times)
   -format string
-    	The format of the input data (json, xml, or csv) (default "json")
+    	The format of the input data (json, xml, csv or text) (default "json")
   -in string
     	Input file path (default: stdin)
   -include value
@@ -48,27 +48,17 @@ masking.
 cat source.xml | ./unaware -format xml -method hashed > masked.xml
 ```
 
-#### Use a static salt for consistent masking results
-```shell
-STATIC_SALT=testing123 ./unaware -in source.json
-```
+### Filtering
 
-### Advanced Filtering
+You can control which fields are masked using the `-include` and `-exclude` flags, which both accept glob patterns (e.g., `user.*`, `session.ip_*`).
 
-You can combine `-include` and `-exclude` flags for control over what gets masked. The logic follows these simple rules:
-
-1.  **Default (No Flags):** Mask everything.
-2.  **Using `-exclude` only:** Mask everything *except* fields matching the exclude patterns.
-3.  **Using `-include` only:** Mask *only* the fields matching the include patterns.
-4.  **Using Both:** First, select only the fields matching the `-include` patterns, and *then* from that selection, remove any fields that match the `-exclude` pattern. **Exclude always wins.**
-
-This allows for combinations. For example, given `data.json`:
+This allows for precise control. For example, given `data.json`:
 ```json
 {
   "user": {
     "id": "aa1",
     "personal_info": {
-      "subscriber": "uuid-123"
+      "subscriber": "uuid-123",
       "name": "Jane Doe",
       "email": "jane.doe@example.com"
     }
@@ -87,20 +77,15 @@ This allows for combinations. For example, given `data.json`:
 ./unaware -in data.json -include 'user.personal_info.*' -include 'session.ip_address' -exclude 'user.personal_info.subscriber'
 ```
 
-**Explanation:**
-- `-include 'user.personal_info.*'` selects `user.personal_info.name` and `user.personal_info.email` for masking.
-- `-include 'session.ip_address'` adds `session.ip_address` to the list.
-- `-exclude 'user.personal_info.subscriber'` then removes the name from that list, even though it was included by the wildcard.
-
 **Result:**
 ```json
 {
   "user": {
     "id": "aa1",
     "personal_info": {
-      "subscriber": "uuid-123"
+      "subscriber": "uuid-123",
       "name": "Burger Iron",
-      "email": "kees@friet.nl",
+      "email": "kees@friet.nl"
     }
   },
   "session": {
