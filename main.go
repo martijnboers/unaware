@@ -5,10 +5,9 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	// "log"
 	"os"
-	// "runtime/pprof"
 
+	"github.com/schollz/progressbar/v3"
 	"unaware/pkg"
 )
 
@@ -25,20 +24,26 @@ func (s *stringSlice) Set(value string) error {
 
 func main() {
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Anonymize data in JSON, XML, and CSV files by replacing values with realistic-looking fakes.\n\n")
-		fmt.Fprintf(os.Stderr, "Use the -method deterministic option to preserve relationships by ensuring identical input values get the same masked output value. \n\n")
-		fmt.Fprintf(os.Stderr, "By default every run uses a random salt, use STATIC_SALT=test123 environment variable for consistent masking.")
-
+		out := flag.CommandLine.Output()
+		fmt.Fprintf(out, "Anonymize data in JSON, XML, CSV, and text files.\n\n")
+		fmt.Fprintf(out, "USAGE:\n")
+		fmt.Fprintf(out, "  unaware -format <type> -in <infile> [flags]\n\n")
+		fmt.Fprintf(out, "EXAMPLES:\n")
+		fmt.Fprintf(out, "  # Mask a JSON file using random values\n")
+		fmt.Fprintf(out, "  unaware -format json -in input.json -out masked.json\n\n")
+		fmt.Fprintf(out, "  # Mask a CSV file, keeping the output consistent between runs\n")
+		fmt.Fprintf(out, "  STATIC_SALT=secret-key unaware -format csv -method deterministic -in data.csv > data_masked.csv\n\n")
+		fmt.Fprintf(out, "  # Mask only email fields in a large JSON file\n")
+		fmt.Fprintf(out, "  unaware -format json -in users.json -include \"*.email\"\n\n")
+		fmt.Fprintf(out, "FLAGS:\n")
 		flag.PrintDefaults()
 	}
 
-	format := flag.String("format", "json", "The format of the input data (json, xml, csv, or text)")
-	methodFlag := flag.String("method", "random", "Method of masking (random or deterministic)")
+	format := flag.String("format", "json", "Format of the input data (json, xml, csv, text)")
+	methodFlag := flag.String("method", "random", "Masking method (random or deterministic)")
 	inputFile := flag.String("in", "", "Input file path (default: stdin)")
 	outputFile := flag.String("out", "", "Output file path (default: stdout)")
-	cpuCount := flag.Int("cpu", 4, "Numbers of cpu cores used")
-	// cpuprofile := flag.String("cpuprofile", "", "write cpu profile to `file`")
-	// memprofile := flag.String("memprofile", "", "write memory profile to `file`")
+	cpuCount := flag.Int("cpu", 4, "Number of CPU cores to use")
 	firstN := flag.Int("first", 0, "Process only the first n records/lines (0 means all)")
 
 	var includePatterns, excludePatterns stringSlice
@@ -46,18 +51,6 @@ func main() {
 	flag.Var(&excludePatterns, "exclude", "Glob pattern to exclude keys from masking (can be specified multiple times)")
 
 	flag.Parse()
-
-	// if *cpuprofile != "" {
-	// 	f, err := os.Create(*cpuprofile)
-	// 	if err != nil {
-	// 		log.Fatal("could not create CPU profile: ", err)
-	// 	}
-	// 	defer f.Close()
-	// 	if err := pprof.StartCPUProfile(f); err != nil {
-	// 		log.Fatal("could not start CPU profile: ", err)
-	// 	}
-	// 	defer pprof.StopCPUProfile()
-	// }
 
 	var strategy pkg.MaskingStrategy
 	switch *methodFlag {
@@ -76,26 +69,54 @@ func main() {
 	case "random":
 		strategy = pkg.Random()
 	default:
-		fmt.Println("No valid method found")
+		fmt.Fprintf(os.Stderr, "Error: Invalid method '%s'. Please use 'random' or 'deterministic'.\n", *methodFlag)
 		os.Exit(1)
 	}
 
-	reader := os.Stdin
+	var reader io.Reader = os.Stdin
 	var inputCloser io.Closer
+	var fileInfo os.FileInfo
+
 	if *inputFile != "" {
 		f, err := os.Open(*inputFile)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "error opening input file: %v\n", err)
 			os.Exit(1)
 		}
+		fileInfo, err = f.Stat()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error getting file info: %v\n", err)
+			os.Exit(1)
+		}
 		inputCloser = f
 		reader = f
 	}
+
+	// Show progress bar only when writing to a file (not stdout) and input is a file
+	if *outputFile != "" && fileInfo != nil && !fileInfo.IsDir() {
+		bar := progressbar.NewOptions64(
+			fileInfo.Size(),
+			progressbar.OptionSetDescription("Masking..."),
+			progressbar.OptionSetWriter(os.Stderr),
+			progressbar.OptionShowBytes(true),
+			progressbar.OptionSetWidth(15),
+			progressbar.OptionThrottle(65*1000000), // 65ms
+			progressbar.OptionShowCount(),
+			progressbar.OptionOnCompletion(func() {
+				fmt.Fprint(os.Stderr, "\n")
+			}),
+			progressbar.OptionSpinnerType(14),
+			progressbar.OptionFullWidth(),
+		)
+		progressBarReader := progressbar.NewReader(reader, bar)
+		reader = &progressBarReader
+	}
+
 	if inputCloser != nil {
 		defer inputCloser.Close()
 	}
 
-	writer := os.Stdout
+	var writer io.Writer = os.Stdout
 	var outputCloser io.Closer
 	if *outputFile != "" {
 		f, err := os.Create(*outputFile)
@@ -108,8 +129,7 @@ func main() {
 	}
 
 	if err := pkg.Start(*format, *cpuCount, reader, writer, strategy, includePatterns, excludePatterns, *firstN); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		// Clean up the potentially partially written file on error
+		fmt.Fprintln(os.Stderr, "Error:", err)
 		if outputCloser != nil {
 			outputCloser.Close()
 			os.Remove(*outputFile)
@@ -123,17 +143,6 @@ func main() {
 			os.Exit(1)
 		}
 	}
-
-	// if *memprofile != "" {
-	// 	f, err := os.Create(*memprofile)
-	// 	if err != nil {
-	// 		log.Fatal("could not create memory profile: ", err)
-	// 	}
-	// 	defer f.Close()
-	// 	if err := pprof.WriteHeapProfile(f); err != nil {
-	// 		log.Fatal("could not write memory profile: ", err)
-	// 	}
-	// }
 
 	if *outputFile != "" {
 		fmt.Printf("Successfully masked input and saved to %s\n", *outputFile)
