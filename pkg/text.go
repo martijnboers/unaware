@@ -3,44 +3,73 @@ package pkg
 import (
 	"bufio"
 	"io"
+	"runtime"
+	"sync"
 )
 
 // textProcessor processes unstructured text data line by line.
 type textProcessor struct {
-	masker *masker
+	strategy MaskingStrategy
 }
 
 // newTextProcessor creates a new processor for plain text data.
-func newTextProcessor(strategy MaskingStrategy, include, exclude []string) *textProcessor {
+func newTextProcessor(strategy MaskingStrategy, _, _ []string) *textProcessor {
 	return &textProcessor{
-		masker: newMasker(strategy),
+		strategy: strategy,
 	}
 }
 
-// Process reads newline-delimited text from r, masks each line, and writes to w.
-// It is designed for text-based data; binary or non-UTF-8 input will be
-// processed on a best-effort basis, which may produce nonsensical output but
-// will not cause a crash.
-func (p *textProcessor) Process(r io.Reader, w io.Writer, _ int) error {
-	scanner := bufio.NewScanner(r)
+// Process reads newline-delimited text from r, masks each line concurrently, and writes to w.
+func (p *textProcessor) Process(r io.Reader, w io.Writer, cpuCount int) error {
+	if cpuCount <= 0 {
+		cpuCount = runtime.NumCPU()
+	}
+
+	jobs := make(chan string, cpuCount)
+	results := make(chan string, cpuCount)
+
+	// Start worker pool
+	wg := &sync.WaitGroup{}
+	for i := 0; i < cpuCount; i++ {
+		wg.Add(1)
+		go p.worker(wg, jobs, results)
+	}
+
+	// Start a goroutine to read the file and send lines to the jobs channel
+	go func() {
+		scanner := bufio.NewScanner(r)
+		const maxCapacity = 1024 * 1024 // 1MB
+		buf := make([]byte, maxCapacity)
+		scanner.Buffer(buf, maxCapacity)
+		for scanner.Scan() {
+			jobs <- scanner.Text()
+		}
+		close(jobs)
+	}()
+
+	// Start a goroutine to close the results channel once all workers are done
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	// Write results to the output
 	writer := bufio.NewWriter(w)
-
-	// Increase the buffer size to handle long lines, preventing bufio.ErrTooLong.
-	const maxCapacity = 1024 * 1024 // 1MB
-	buf := make([]byte, maxCapacity)
-	scanner.Buffer(buf, maxCapacity)
-
-	for scanner.Scan() {
-		line := scanner.Text()
-		maskedLine := p.masker.mask(line)
-		if _, err := writer.WriteString(maskedLine.(string) + "\n"); err != nil {
+	defer writer.Flush()
+	for result := range results {
+		if _, err := writer.WriteString(result + "\n"); err != nil {
 			return err
 		}
 	}
 
-	if err := scanner.Err(); err != nil {
-		return err
-	}
+	return nil
+}
 
-	return writer.Flush()
+func (p *textProcessor) worker(wg *sync.WaitGroup, jobs <-chan string, results chan<- string) {
+	defer wg.Done()
+	masker := newMasker(p.strategy)
+	for line := range jobs {
+		maskedLine := masker.mask(line)
+		results <- maskedLine.(string)
+	}
 }
