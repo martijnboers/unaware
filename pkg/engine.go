@@ -17,6 +17,7 @@ import (
 
 	"github.com/araddon/dateparse"
 	"github.com/brianvoe/gofakeit/v6"
+	"github.com/dgraph-io/ristretto"
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
 )
@@ -93,10 +94,6 @@ func (ds *deterministicSeeder) SeedFakerForWord(f *gofakeit.Faker, word string) 
 // provides a performance optimization for very long inputs.
 func (ds *deterministicSeeder) createSeed(s string) int64 {
 	// Truncate the input string to limit hashing overhead for long inputs.
-	// 64 characters is chosen as a reasonable balance: it's long enough for most PII
-	// to be unique, but short enough to keep hashing fast. Collisions on this truncated
-	// input are highly unlikely for diverse PII, but possible for extremely similar
-	// long strings (e.g., two long paragraphs differing only after 64 chars).
 	if len(s) > 64 {
 		s = s[:64]
 	}
@@ -112,6 +109,15 @@ type MaskingStrategy func(*masker)
 func Deterministic(salt []byte) MaskingStrategy {
 	return func(m *masker) {
 		m.seeder = &deterministicSeeder{salt: salt}
+		cache, err := ristretto.NewCache(&ristretto.Config{
+			NumCounters: 1e7,     // number of keys to track frequency of (10M).
+			MaxCost:     1 << 30, // maximum cost of cache (1GB).
+			BufferItems: 64,      // number of keys per Get buffer.
+		})
+		if err != nil {
+			panic(err)
+		}
+		m.cache = cache
 	}
 }
 
@@ -129,6 +135,7 @@ func Random() MaskingStrategy {
 type masker struct {
 	faker        *gofakeit.Faker
 	seeder       seeder
+	cache        *ristretto.Cache
 	dateLayouts  []string
 	emailRegex   *regexp.Regexp
 	numLikeRegex *regexp.Regexp
@@ -150,7 +157,6 @@ func newMasker(strategy MaskingStrategy) *masker {
 		numLikeRegex: regexp.MustCompile(`^[\d\s-]+$`),
 	}
 	strategy(m)
-	// For deterministic, we need to unlock the faker to allow re-seeding.
 	if _, ok := m.seeder.(*deterministicSeeder); ok {
 		m.faker = gofakeit.NewUnlocked(1)
 	} else {
@@ -163,6 +169,38 @@ func (m *masker) mask(value any) any {
 	if value == nil {
 		return nil
 	}
+
+	// Use cache for deterministic masking to avoid re-computing for the same input.
+	if m.cache != nil {
+		cacheKey := m.getCacheKey(value)
+		if maskedValue, ok := m.cache.Get(cacheKey); ok {
+			return maskedValue
+		}
+	}
+
+	maskedValue := m.maskUncached(value)
+
+	if m.cache != nil {
+		cacheKey := m.getCacheKey(value)
+		m.cache.Set(cacheKey, maskedValue, 1)
+	}
+
+	return maskedValue
+}
+
+func (m *masker) getCacheKey(value any) string {
+	switch v := value.(type) {
+	case string:
+		return v
+	case json.Number:
+		return v.String()
+	case bool:
+		return strconv.FormatBool(v)
+	default:
+		return "" // Should not happen for supported types
+	}
+}
+func (m *masker) maskUncached(value any) any {
 	m.seeder.SeedFaker(m.faker, value)
 	switch v := value.(type) {
 	case string:
