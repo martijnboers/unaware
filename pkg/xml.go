@@ -27,7 +27,7 @@ func newXMLProcessor(strategy MaskingStrategy, include, exclude []string) *xmlPr
 // Process determines the XML processing strategy. Unlike the JSON processor, this
 // implementation is limited to detecting lists of repeating elements that are direct
 // children of the root element.
-func (xp *xmlProcessor) Process(r io.Reader, w io.Writer, cpuCount int) error {
+func (xp *xmlProcessor) Process(r io.Reader, w io.Writer, cpuCount int, firstN int) error {
 	var buf bytes.Buffer
 	tee := io.TeeReader(r, &buf)
 	decoder := xml.NewDecoder(tee)
@@ -38,12 +38,12 @@ func (xp *xmlProcessor) Process(r io.Reader, w io.Writer, cpuCount int) error {
 		runner := newConcurrentRunner(xp.methodFactory, cpuCount, xp.include, xp.exclude)
 		runner.Root = root.Name.Local
 		chunkDecoder := xml.NewDecoder(combinedReader)
-		chunkReader := xp.createXMLChunkReader(chunkDecoder, root.Name, firstChild.Name)
+		chunkReader := xp.createXMLChunkReader(chunkDecoder, root.Name, firstChild.Name, firstN)
 		assembler := &xmlAssembler{Root: root}
 		return runner.Run(w, chunkReader, assembler)
 	}
 
-	// Fallback to a fully streaming serial processor
+	// Fallback to a fully streaming serial processor (subsetting not supported here)
 	serialDecoder := xml.NewDecoder(combinedReader)
 	return xp.processSerially(serialDecoder, w)
 }
@@ -156,10 +156,14 @@ func detectXMLListPattern(decoder *xml.Decoder) (xml.StartElement, xml.StartElem
 	}
 }
 
-func (xp *xmlProcessor) createXMLChunkReader(decoder *xml.Decoder, rootName, listItemName xml.Name) chunkReader {
+func (xp *xmlProcessor) createXMLChunkReader(decoder *xml.Decoder, rootName, listItemName xml.Name, firstN int) chunkReader {
 	var started bool
+	recordCount := 0
 	return func() (any, error) {
 		for {
+			if firstN > 0 && recordCount >= firstN {
+				return nil, io.EOF
+			}
 			token, err := decoder.Token()
 			if err != nil {
 				return nil, err
@@ -177,6 +181,7 @@ func (xp *xmlProcessor) createXMLChunkReader(decoder *xml.Decoder, rootName, lis
 					if err != nil {
 						return nil, err
 					}
+					recordCount++
 					return map[string]any{se.Name.Local: elementMap}, nil
 				}
 			case xml.EndElement:

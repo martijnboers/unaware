@@ -24,7 +24,7 @@ func newJSONProcessor(strategy MaskingStrategy, include, exclude []string) *json
 	}
 }
 
-func (jp *jsonProcessor) Process(r io.Reader, w io.Writer, cpuCount int) error {
+func (jp *jsonProcessor) Process(r io.Reader, w io.Writer, cpuCount int, firstN int) error {
 	br := newPeekingReader(r)
 	firstChar, err := br.PeekFirstChar()
 	if err == io.EOF {
@@ -35,18 +35,23 @@ func (jp *jsonProcessor) Process(r io.Reader, w io.Writer, cpuCount int) error {
 	}
 
 	if firstChar == '[' {
-		return jp.processRootArray(br, w, cpuCount)
+		return jp.processRootArray(br, w, cpuCount, firstN)
 	}
 
+	// Note: --first is not applied for single root object JSON as there is only one "record".
 	return jp.processConcurrentObject(br, w, cpuCount)
 }
 
-func (jp *jsonProcessor) processRootArray(r io.Reader, w io.Writer, cpuCount int) error {
+func (jp *jsonProcessor) processRootArray(r io.Reader, w io.Writer, cpuCount int, firstN int) error {
 	runner := newConcurrentRunner(jp.methodFactory, cpuCount, jp.include, jp.exclude)
 	decoder := json.NewDecoder(r)
 	decoder.UseNumber()
 	_, _ = decoder.Token() // consume '['
+	recordCount := 0
 	chunkReader := func() (any, error) {
+		if firstN > 0 && recordCount >= firstN {
+			return nil, io.EOF
+		}
 		if !decoder.More() {
 			_, err := decoder.Token()
 			if err != nil && err != io.EOF {
@@ -56,6 +61,7 @@ func (jp *jsonProcessor) processRootArray(r io.Reader, w io.Writer, cpuCount int
 		}
 		var chunk any
 		err := decoder.Decode(&chunk)
+		recordCount++
 		return chunk, err
 	}
 	return runner.Run(w, chunkReader, &jsonAssembler{isRootArray: true})

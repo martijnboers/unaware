@@ -19,7 +19,7 @@ func TestCSVProcessing_Deterministic(t *testing.T) {
 2,Jane Smith,jane.smith@example.net,10.0.0.2,more data`
 
 	var buf bytes.Buffer
-	err := pkg.Start("csv", 2, strings.NewReader(input), &buf, pkg.Deterministic(salt), nil, nil)
+	err := pkg.Start("csv", 2, strings.NewReader(input), &buf, pkg.Deterministic(salt), nil, nil, 0)
 	require.NoError(t, err)
 
 	output := buf.String()
@@ -55,7 +55,7 @@ func TestCSVProcessing_WithInclude(t *testing.T) {
 	include := []string{"email", "ip_address"}
 
 	var buf bytes.Buffer
-	err := pkg.Start("csv", 2, strings.NewReader(input), &buf, pkg.Deterministic(salt), include, nil)
+	err := pkg.Start("csv", 2, strings.NewReader(input), &buf, pkg.Deterministic(salt), include, nil, 0)
 	require.NoError(t, err)
 
 	output := buf.String()
@@ -92,7 +92,7 @@ func TestCSVProcessing_WithExclude(t *testing.T) {
 	exclude := []string{"id", "notes"}
 
 	var buf bytes.Buffer
-	err := pkg.Start("csv", 2, strings.NewReader(input), &buf, pkg.Deterministic(salt), nil, exclude)
+	err := pkg.Start("csv", 2, strings.NewReader(input), &buf, pkg.Deterministic(salt), nil, exclude, 0)
 	require.NoError(t, err)
 
 	output := buf.String()
@@ -119,7 +119,7 @@ func TestCSVProcessing_WithExclude(t *testing.T) {
 
 func TestEmptyReader_CSV(t *testing.T) {
 	var buf bytes.Buffer
-	err := pkg.Start("csv", 1, strings.NewReader(""), &buf, pkg.Random(), nil, nil)
+	err := pkg.Start("csv", 1, strings.NewReader(""), &buf, pkg.Random(), nil, nil, 0)
 	require.NoError(t, err)
 	assert.Equal(t, "", buf.String())
 }
@@ -127,6 +127,6 @@ func TestEmptyReader_CSV(t *testing.T) {
 func TestReaderError_CSV(t *testing.T) {
 	errorReader := &errorReader{}
 	var buf bytes.Buffer
-	err := pkg.Start("csv", 1, errorReader, &buf, pkg.Random(), nil, nil)
+	err := pkg.Start("csv", 1, errorReader, &buf, pkg.Random(), nil, nil, 0)
 	require.Error(t, err)
 }

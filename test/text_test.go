@@ -1,9 +1,10 @@
-package pkg
+package test
 
 import (
 	"bytes"
 	"strings"
 	"testing"
+	"unaware/pkg"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -35,7 +36,7 @@ func TestTextProcessor(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			var buf bytes.Buffer
-			err := Start("text", 1, strings.NewReader(tc.input), &buf, Random(), nil, nil)
+			err := pkg.Start("text", 1, strings.NewReader(tc.input), &buf, pkg.Random(), nil, nil, 0)
 			require.NoError(t, err)
 
 			output := buf.String()

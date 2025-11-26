@@ -5,9 +5,9 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"log"
+	// "log"
 	"os"
-	"runtime/pprof"
+	// "runtime/pprof"
 
 	"unaware/pkg"
 )
@@ -37,8 +37,9 @@ func main() {
 	inputFile := flag.String("in", "", "Input file path (default: stdin)")
 	outputFile := flag.String("out", "", "Output file path (default: stdout)")
 	cpuCount := flag.Int("cpu", 4, "Numbers of cpu cores used")
-	cpuprofile := flag.String("cpuprofile", "", "write cpu profile to `file`")
-	memprofile := flag.String("memprofile", "", "write memory profile to `file`")
+	// cpuprofile := flag.String("cpuprofile", "", "write cpu profile to `file`")
+	// memprofile := flag.String("memprofile", "", "write memory profile to `file`")
+	firstN := flag.Int("first", 0, "Process only the first n records/lines (0 means all)")
 
 	var includePatterns, excludePatterns stringSlice
 	flag.Var(&includePatterns, "include", "Glob pattern to include keys for masking (can be specified multiple times)")
@@ -46,17 +47,17 @@ func main() {
 
 	flag.Parse()
 
-	if *cpuprofile != "" {
-		f, err := os.Create(*cpuprofile)
-		if err != nil {
-			log.Fatal("could not create CPU profile: ", err)
-		}
-		defer f.Close()
-		if err := pprof.StartCPUProfile(f); err != nil {
-			log.Fatal("could not start CPU profile: ", err)
-		}
-		defer pprof.StopCPUProfile()
-	}
+	// if *cpuprofile != "" {
+	// 	f, err := os.Create(*cpuprofile)
+	// 	if err != nil {
+	// 		log.Fatal("could not create CPU profile: ", err)
+	// 	}
+	// 	defer f.Close()
+	// 	if err := pprof.StartCPUProfile(f); err != nil {
+	// 		log.Fatal("could not start CPU profile: ", err)
+	// 	}
+	// 	defer pprof.StopCPUProfile()
+	// }
 
 	var strategy pkg.MaskingStrategy
 	switch *methodFlag {
@@ -106,7 +107,7 @@ func main() {
 		writer = f
 	}
 
-	if err := pkg.Start(*format, *cpuCount, reader, writer, strategy, includePatterns, excludePatterns); err != nil {
+	if err := pkg.Start(*format, *cpuCount, reader, writer, strategy, includePatterns, excludePatterns, *firstN); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		// Clean up the potentially partially written file on error
 		if outputCloser != nil {
@@ -123,16 +124,16 @@ func main() {
 		}
 	}
 
-	if *memprofile != "" {
-		f, err := os.Create(*memprofile)
-		if err != nil {
-			log.Fatal("could not create memory profile: ", err)
-		}
-		defer f.Close()
-		if err := pprof.WriteHeapProfile(f); err != nil {
-			log.Fatal("could not write memory profile: ", err)
-		}
-	}
+	// if *memprofile != "" {
+	// 	f, err := os.Create(*memprofile)
+	// 	if err != nil {
+	// 		log.Fatal("could not create memory profile: ", err)
+	// 	}
+	// 	defer f.Close()
+	// 	if err := pprof.WriteHeapProfile(f); err != nil {
+	// 		log.Fatal("could not write memory profile: ", err)
+	// 	}
+	// }
 
 	if *outputFile != "" {
 		fmt.Printf("Successfully masked input and saved to %s\n", *outputFile)

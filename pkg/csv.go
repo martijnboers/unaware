@@ -26,7 +26,7 @@ func newCSVProcessor(strategy MaskingStrategy, include, exclude []string) *csvPr
 }
 
 // Process orchestrates the reading and assembling of the CSV data.
-func (p *csvProcessor) Process(r io.Reader, w io.Writer, cpuCount int) error {
+func (p *csvProcessor) Process(r io.Reader, w io.Writer, cpuCount int, firstN int) error {
 	csvReader := csv.NewReader(r)
 
 	// Read the header to get column names.
@@ -40,11 +40,16 @@ func (p *csvProcessor) Process(r io.Reader, w io.Writer, cpuCount int) error {
 
 	// The chunkReader function reads one row at a time and converts it into a map,
 	// which is the "chunk" our concurrent runner will process.
+	rowCount := 0
 	chunkReader := func() (any, error) {
+		if firstN > 0 && rowCount >= firstN {
+			return nil, io.EOF
+		}
 		record, err := csvReader.Read()
 		if err != nil {
 			return nil, err // Let the runner handle io.EOF
 		}
+		rowCount++
 		// Convert the row (a slice of strings) into a map using the header.
 		// This provides the necessary key (column name) for masking.
 		rowMap := make(map[string]any, len(header))

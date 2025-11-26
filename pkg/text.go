@@ -20,7 +20,7 @@ func newTextProcessor(strategy MaskingStrategy, _, _ []string) *textProcessor {
 }
 
 // Process reads newline-delimited text from r, masks each line concurrently, and writes to w.
-func (p *textProcessor) Process(r io.Reader, w io.Writer, cpuCount int) error {
+func (p *textProcessor) Process(r io.Reader, w io.Writer, cpuCount int, firstN int) error {
 	if cpuCount <= 0 {
 		cpuCount = runtime.NumCPU()
 	}
@@ -41,8 +41,13 @@ func (p *textProcessor) Process(r io.Reader, w io.Writer, cpuCount int) error {
 		const maxCapacity = 1024 * 1024 // 1MB
 		buf := make([]byte, maxCapacity)
 		scanner.Buffer(buf, maxCapacity)
+		lineCount := 0
 		for scanner.Scan() {
+			if firstN > 0 && lineCount >= firstN {
+				break
+			}
 			jobs <- scanner.Text()
+			lineCount++
 		}
 		close(jobs)
 	}()

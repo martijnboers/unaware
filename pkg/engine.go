@@ -23,10 +23,10 @@ import (
 )
 
 type processor interface {
-	Process(r io.Reader, w io.Writer, cpuCount int) error
+	Process(r io.Reader, w io.Writer, cpuCount int, firstN int) error
 }
 
-func Start(format string, cpuCount int, r io.Reader, w io.Writer, strategy MaskingStrategy, include, exclude []string) error {
+func Start(format string, cpuCount int, r io.Reader, w io.Writer, strategy MaskingStrategy, include, exclude []string, firstN int) error {
 	var p processor
 	switch format {
 	case "json":
@@ -41,7 +41,7 @@ func Start(format string, cpuCount int, r io.Reader, w io.Writer, strategy Maski
 		return fmt.Errorf("unsupported format: %s", format)
 	}
 
-	return p.Process(r, w, cpuCount)
+	return p.Process(r, w, cpuCount, firstN)
 }
 
 func shouldMask(key string, include, exclude []string) bool {
