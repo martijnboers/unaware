@@ -1,11 +1,9 @@
 package pkg
 
 import (
-	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"net"
 	"net/url"
@@ -67,9 +65,9 @@ type seeder interface {
 	SeedFakerForWord(f *gofakeit.Faker, word string)
 }
 
-type deterministicSeeder struct{ salt []byte }
+type deterministicSeeder struct{}
 
-func (hs *deterministicSeeder) SeedFaker(f *gofakeit.Faker, input any) {
+func (ds *deterministicSeeder) SeedFaker(f *gofakeit.Faker, input any) {
 	var seedInput string
 	switch v := input.(type) {
 	case string:
@@ -81,23 +79,24 @@ func (hs *deterministicSeeder) SeedFaker(f *gofakeit.Faker, input any) {
 	default:
 		seedInput = "[UNSUPPORTED]"
 	}
-	f.Rand.Seed(hs.createSeed(seedInput))
+	f.Rand.Seed(ds.createSeed(seedInput))
 }
-func (hs *deterministicSeeder) SeedFakerForWord(f *gofakeit.Faker, word string) {
-	f.Rand.Seed(hs.createSeed(word))
+
+func (ds *deterministicSeeder) SeedFakerForWord(f *gofakeit.Faker, word string) {
+	f.Rand.Seed(ds.createSeed(word))
 }
-func (hs *deterministicSeeder) createSeed(s string) int64 {
-	mac := hmac.New(sha256.New, hs.salt)
-	mac.Write([]byte(s))
-	seedBytes := mac.Sum(nil)
-	return int64(binary.BigEndian.Uint64(seedBytes))
+
+func (ds *deterministicSeeder) createSeed(s string) int64 {
+	h := fnv.New64a()
+	h.Write([]byte(s))
+	return int64(h.Sum64())
 }
 
 type MaskingStrategy func(*masker)
 
 func Deterministic(salt []byte) MaskingStrategy {
 	return func(m *masker) {
-		m.seeder = &deterministicSeeder{salt: salt}
+		m.seeder = &deterministicSeeder{}
 	}
 }
 
@@ -136,6 +135,7 @@ func newMasker(strategy MaskingStrategy) *masker {
 		numLikeRegex: regexp.MustCompile(`^[\d\s-]+$`),
 	}
 	strategy(m)
+	// For deterministic, we need to unlock the faker to allow re-seeding.
 	if _, ok := m.seeder.(*deterministicSeeder); ok {
 		m.faker = gofakeit.NewUnlocked(1)
 	} else {

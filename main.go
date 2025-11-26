@@ -5,7 +5,9 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log"
 	"os"
+	"runtime/pprof"
 
 	"unaware/pkg"
 )
@@ -35,12 +37,26 @@ func main() {
 	inputFile := flag.String("in", "", "Input file path (default: stdin)")
 	outputFile := flag.String("out", "", "Output file path (default: stdout)")
 	cpuCount := flag.Int("cpu", 4, "Numbers of cpu cores used")
+	cpuprofile := flag.String("cpuprofile", "", "write cpu profile to `file`")
+	memprofile := flag.String("memprofile", "", "write memory profile to `file`")
 
 	var includePatterns, excludePatterns stringSlice
 	flag.Var(&includePatterns, "include", "Glob pattern to include keys for masking (can be specified multiple times)")
 	flag.Var(&excludePatterns, "exclude", "Glob pattern to exclude keys from masking (can be specified multiple times)")
 
 	flag.Parse()
+
+	if *cpuprofile != "" {
+		f, err := os.Create(*cpuprofile)
+		if err != nil {
+			log.Fatal("could not create CPU profile: ", err)
+		}
+		defer f.Close()
+		if err := pprof.StartCPUProfile(f); err != nil {
+			log.Fatal("could not start CPU profile: ", err)
+		}
+		defer pprof.StopCPUProfile()
+	}
 
 	var strategy pkg.MaskingStrategy
 	switch *methodFlag {
@@ -104,6 +120,17 @@ func main() {
 		if err := outputCloser.Close(); err != nil {
 			fmt.Fprintf(os.Stderr, "error closing output file: %v\n", err)
 			os.Exit(1)
+		}
+	}
+
+	if *memprofile != "" {
+		f, err := os.Create(*memprofile)
+		if err != nil {
+			log.Fatal("could not create memory profile: ", err)
+		}
+		defer f.Close()
+		if err := pprof.WriteHeapProfile(f); err != nil {
+			log.Fatal("could not write memory profile: ", err)
 		}
 	}
 

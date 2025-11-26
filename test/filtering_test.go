@@ -56,12 +56,12 @@ func TestFilteringScenarios(t *testing.T) {
 			format: "json",
 			input:  jsonInput,
 			expected: []string{
-				`"id": "chapter"`,
-				`"name": "Cute His"`,
-				`"email": "clevelandsenger@sawayn.io"`,
-				`"last_login": "1945-09-30T19:45:32Z"`,
-				`"ip_address": "113.186.161.194"`,
-				`"transaction_id": "without"`,
+				`"id": "here"`,
+				`"name": "Without Hey"`,
+				`"email": "juddhane@gulgowski.info"`,
+				`"last_login": "1933-01-22T12:33:36Z"`,
+				`"ip_address": "68.161.207.144"`,
+				`"transaction_id": "finally"`,
 			},
 			notExpected: []string{
 				`"id": "user-123"`,
@@ -76,8 +76,8 @@ func TestFilteringScenarios(t *testing.T) {
 			expected: []string{
 				`"id": "user-123"`,                 // Not masked
 				`"ip_address": "203.0.113.195"`,     // Not masked
-				`"name": "Cute His"`,               // Masked
-				`"transaction_id": "without"`, // Masked
+				`"name": "Without Hey"`,               // Masked
+				`"transaction_id": "finally"`, // Masked
 			},
 		},
 		{
@@ -87,8 +87,8 @@ func TestFilteringScenarios(t *testing.T) {
 			include: []string{"user.personal.*"},
 			expected: []string{
 				`"id": "user-123"`,                 // Not masked (not in include)
-				`"name": "Cute His"`,               // Masked
-				`"email": "clevelandsenger@sawayn.io"`, // Masked
+				`"name": "Without Hey"`,               // Masked
+				`"email": "juddhane@gulgowski.info"`, // Masked
 				`"ip_address": "203.0.113.195"`,     // Not masked
 			},
 		},
@@ -100,7 +100,7 @@ func TestFilteringScenarios(t *testing.T) {
 			exclude: []string{"user.id", "user.metadata.last_login"},
 			expected: []string{
 				`"id": "user-123"`,                     // Not masked (excluded)
-				`"name": "Cute His"`,                   // Masked (included)
+				`"name": "Without Hey"`,                   // Masked (included)
 				`"last_login": "2023-10-27T10:00:00Z"`, // Not masked (excluded)
 				`"transaction_id": "txn-abc-456"`,     // Not masked (not included)
 			},
@@ -111,12 +111,12 @@ func TestFilteringScenarios(t *testing.T) {
 			format: "xml",
 			input:  xmlInput,
 			expected: []string{
-				`<user id="constantly">`,
-				`<name>Finally His</name>`,
-				`<email>alfredofritsch@dickinson.net</email>`,
-				`<last_login>2001-03-07T14:59:55Z</last_login>`,
-				`<ip_address>238.108.102.226</ip_address>`,
-				`<transaction_id>her</transaction_id>`,
+				`<user id="which">`,
+				`<name>Towards Hey</name>`,
+				`<email>kaciebuckridge@hoeger.io</email>`,
+				`<last_login>1951-07-13T06:25:46Z</last_login>`,
+				`<ip_address>230.182.217.22</ip_address>`,
+				`<transaction_id>here</transaction_id>`,
 			},
 		},
 		{
@@ -127,7 +127,7 @@ func TestFilteringScenarios(t *testing.T) {
 			expected: []string{
 				`<user id="user-xyz">`, // Not masked
 				`<name>Jane Doe</name>`,   // Not masked
-				`<email>alfredofritsch@dickinson.net</email>`, // Masked
+				`<email>kaciebuckridge@hoeger.io</email>`, // Masked
 			},
 		},
 		{
@@ -137,8 +137,8 @@ func TestFilteringScenarios(t *testing.T) {
 			include: []string{"root.user.metadata.*"},
 			expected: []string{
 				`<name>Jane Doe</name>`,                         // Not masked (not included)
-				`<last_login>2001-03-07T14:59:55Z</last_login>`, // Masked
-				`<ip_address>238.108.102.226</ip_address>`,     // Masked
+				`<last_login>1951-07-13T06:25:46Z</last_login>`, // Masked
+				`<ip_address>230.182.217.22</ip_address>`,     // Masked
 			},
 		},
 		{
@@ -149,7 +149,7 @@ func TestFilteringScenarios(t *testing.T) {
 			exclude: []string{"root.user.id", "root.user.metadata.ip_address"},
 			expected: []string{
 				`<user id="user-xyz">`,                     // Not masked (excluded)
-				`<name>Finally His</name>`,                  // Masked (included)
+				`<name>Towards Hey</name>`,                  // Masked (included)
 				`<ip_address>198.51.100.22</ip_address>`,   // Not masked (excluded)
 				`<transaction_id>txn-def-789</transaction_id>`, // Not masked (not included)
 			},
