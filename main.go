@@ -27,14 +27,14 @@ func main() {
 		out := flag.CommandLine.Output()
 		fmt.Fprintf(out, "Anonymize data in JSON, XML, CSV, and text files.\n\n")
 		fmt.Fprintf(out, "USAGE:\n")
-		fmt.Fprintf(out, "  unaware -format <type> -in <infile> [flags]\n\n")
+		fmt.Fprintf(out, "  unaware -format <type> [flags]\n\n")
 		fmt.Fprintf(out, "EXAMPLES:\n")
 		fmt.Fprintf(out, "  # Mask a JSON file using random values\n")
 		fmt.Fprintf(out, "  unaware -format json -in input.json -out masked.json\n\n")
 		fmt.Fprintf(out, "  # Mask a CSV file, keeping the output consistent between runs\n")
 		fmt.Fprintf(out, "  STATIC_SALT=secret-key unaware -format csv -method deterministic -in data.csv > data_masked.csv\n\n")
 		fmt.Fprintf(out, "  # Mask only email fields in a large JSON file\n")
-		fmt.Fprintf(out, "  unaware -format json -in users.json -include \"*.email\"\n\n")
+		fmt.Fprintf(out, "  cat users.json | unaware -format json -include \"*.email\" > masked.json\n\n")
 		fmt.Fprintf(out, "FLAGS:\n")
 		flag.PrintDefaults()
 	}
@@ -52,9 +52,10 @@ func main() {
 
 	flag.Parse()
 
-	var strategy pkg.MaskingStrategy
+	var maskerConfig pkg.MaskerConfig
 	switch *methodFlag {
-	case "deterministic":
+	case string(pkg.MethodDeterministic):
+		maskerConfig.Method = pkg.MethodDeterministic
 		var salt []byte
 		if staticSalt := os.Getenv("STATIC_SALT"); staticSalt != "" {
 			salt = []byte(staticSalt)
@@ -65,12 +66,21 @@ func main() {
 				os.Exit(1)
 			}
 		}
-		strategy = pkg.Deterministic(salt)
-	case "random":
-		strategy = pkg.Random()
+		maskerConfig.Salt = salt
+	case string(pkg.MethodRandom):
+		maskerConfig.Method = pkg.MethodRandom
 	default:
 		fmt.Fprintf(os.Stderr, "Error: Invalid method '%s'. Please use 'random' or 'deterministic'.\n", *methodFlag)
 		os.Exit(1)
+	}
+
+	appConfig := pkg.AppConfig{
+		Format:   *format,
+		CPUCount: *cpuCount,
+		Include:  includePatterns,
+		Exclude:  excludePatterns,
+		FirstN:   *firstN,
+		Masker:   maskerConfig,
 	}
 
 	var reader io.Reader = os.Stdin
@@ -92,7 +102,6 @@ func main() {
 		reader = f
 	}
 
-	// Show progress bar only when writing to a file (not stdout) and input is a file
 	if *outputFile != "" && fileInfo != nil && !fileInfo.IsDir() {
 		bar := progressbar.NewOptions64(
 			fileInfo.Size(),
@@ -128,7 +137,7 @@ func main() {
 		writer = f
 	}
 
-	if err := pkg.Start(*format, *cpuCount, reader, writer, strategy, includePatterns, excludePatterns, *firstN); err != nil {
+	if err := pkg.Start(reader, writer, appConfig); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		if outputCloser != nil {
 			outputCloser.Close()

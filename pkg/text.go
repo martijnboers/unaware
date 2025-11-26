@@ -7,20 +7,19 @@ import (
 	"sync"
 )
 
-// textProcessor processes unstructured text data line by line.
 type textProcessor struct {
-	strategy MaskingStrategy
+	config AppConfig
 }
 
-// newTextProcessor creates a new processor for plain text data.
-func newTextProcessor(strategy MaskingStrategy, _, _ []string) *textProcessor {
+func newTextProcessor(config AppConfig) *textProcessor {
 	return &textProcessor{
-		strategy: strategy,
+		config: config,
 	}
 }
 
 // Process reads newline-delimited text from r, masks each line concurrently, and writes to w.
-func (p *textProcessor) Process(r io.Reader, w io.Writer, cpuCount int, firstN int) error {
+func (p *textProcessor) Process(r io.Reader, w io.Writer) error {
+	cpuCount := p.config.CPUCount
 	if cpuCount <= 0 {
 		cpuCount = runtime.NumCPU()
 	}
@@ -43,7 +42,7 @@ func (p *textProcessor) Process(r io.Reader, w io.Writer, cpuCount int, firstN i
 		scanner.Buffer(buf, maxCapacity)
 		lineCount := 0
 		for scanner.Scan() {
-			if firstN > 0 && lineCount >= firstN {
+			if p.config.FirstN > 0 && lineCount >= p.config.FirstN {
 				break
 			}
 			jobs <- scanner.Text()
@@ -72,7 +71,7 @@ func (p *textProcessor) Process(r io.Reader, w io.Writer, cpuCount int, firstN i
 
 func (p *textProcessor) worker(wg *sync.WaitGroup, jobs <-chan string, results chan<- string) {
 	defer wg.Done()
-	masker := newMasker(p.strategy)
+	masker := newMasker(p.config.Masker)
 	for line := range jobs {
 		maskedLine := masker.mask(line)
 		results <- maskedLine.(string)

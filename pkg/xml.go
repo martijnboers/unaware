@@ -9,41 +9,45 @@ import (
 )
 
 type xmlProcessor struct {
+	config        AppConfig
 	methodFactory func() *masker
-	include       []string
-	exclude       []string
 }
 
-func newXMLProcessor(strategy MaskingStrategy, include, exclude []string) *xmlProcessor {
+func newXMLProcessor(config AppConfig) *xmlProcessor {
 	return &xmlProcessor{
+		config: config,
 		methodFactory: func() *masker {
-			return newMasker(strategy)
+			return newMasker(config.Masker)
 		},
-		include: include,
-		exclude: exclude,
 	}
 }
 
-// Process determines the XML processing strategy. Unlike the JSON processor, this
-// implementation is limited to detecting lists of repeating elements that are direct
-// children of the root element.
-func (xp *xmlProcessor) Process(r io.Reader, w io.Writer, cpuCount int, firstN int) error {
+// Process determines if the XML can be processed concurrently or if it should
+// fall back to a serial approach. Concurrency is only possible if the XML
+// consists of a simple list of repeating elements directly under the root.
+func (xp *xmlProcessor) Process(r io.Reader, w io.Writer) error {
 	var buf bytes.Buffer
 	tee := io.TeeReader(r, &buf)
+
 	decoder := xml.NewDecoder(tee)
 	root, firstChild, _, ok := detectXMLListPattern(decoder)
+
+	// We must combine the buffer (which was consumed by the pattern detector)
+	// with the original reader to provide the full XML stream to the next stage.
 	combinedReader := io.MultiReader(&buf, r)
 
 	if ok {
-		runner := newConcurrentRunner(xp.methodFactory, cpuCount, xp.include, xp.exclude)
+		// If a repeating pattern is found, process the elements concurrently.
+		runner := newConcurrentRunner(xp.methodFactory, xp.config)
 		runner.Root = root.Name.Local
 		chunkDecoder := xml.NewDecoder(combinedReader)
-		chunkReader := xp.createXMLChunkReader(chunkDecoder, root.Name, firstChild.Name, firstN)
+		chunkReader := xp.createXMLChunkReader(chunkDecoder, root.Name, firstChild.Name, xp.config.FirstN)
 		assembler := &xmlAssembler{Root: root}
 		return runner.Run(w, chunkReader, assembler)
 	}
 
-	// Fallback to a fully streaming serial processor (subsetting not supported here)
+	// For complex or non-list XML, fall back to a serial, streaming processor.
+	// Note: Subsetting with -first is not supported in this mode.
 	serialDecoder := xml.NewDecoder(combinedReader)
 	return xp.processSerially(serialDecoder, w)
 }
@@ -122,6 +126,11 @@ func mapToXML(key string, m map[string]any, enc *xml.Encoder) error {
 	return enc.EncodeToken(start.End())
 }
 
+// detectXMLListPattern heuristically checks if an XML document is a simple list.
+// It does this by checking if the first two elements directly under the root have
+// the same tag name. This is an optimization to enable concurrent processing for
+// simple list-like XML structures while gracefully falling back to a serial
+// processor for more complex ones. It does not parse the full document.
 func detectXMLListPattern(decoder *xml.Decoder) (xml.StartElement, xml.StartElement, xml.StartElement, bool) {
 	var root, firstChild, secondChild xml.StartElement
 	depth := 0
@@ -141,6 +150,7 @@ func detectXMLListPattern(decoder *xml.Decoder) (xml.StartElement, xml.StartElem
 					firstChild = se.Copy()
 				} else {
 					secondChild = se.Copy()
+					// If the first two children have the same name, we assume it's a list.
 					if firstChild.Name.Local == secondChild.Name.Local {
 						return root, firstChild, secondChild, true
 					}
@@ -235,7 +245,7 @@ func decodeElementToMap(decoder *xml.Decoder, start xml.StartElement) (map[strin
 func (xp *xmlProcessor) processSerially(decoder *xml.Decoder, w io.Writer) error {
 	encoder := xml.NewEncoder(w)
 	encoder.Indent("", "  ")
-	serialMasker := xp.methodFactory()
+	serialMasker := newMasker(xp.config.Masker)
 	var path []string
 	for {
 		token, err := decoder.Token()
@@ -252,7 +262,7 @@ func (xp *xmlProcessor) processSerially(decoder *xml.Decoder, w io.Writer) error
 			for i := range startElem.Attr {
 				attr := &startElem.Attr[i]
 				fullKey := strings.Join(path, ".") + "." + attr.Name.Local
-				if shouldMask(fullKey, xp.include, xp.exclude) {
+				if shouldMask(fullKey, xp.config.Include, xp.config.Exclude) {
 					maskedValue := serialMasker.mask(attr.Value)
 					attr.Value = fmt.Sprintf("%v", maskedValue)
 				}
@@ -264,7 +274,7 @@ func (xp *xmlProcessor) processSerially(decoder *xml.Decoder, w io.Writer) error
 			trimmedData := strings.TrimSpace(string(se))
 			if len(trimmedData) > 0 {
 				fullKey := strings.Join(path, ".")
-				if shouldMask(fullKey, xp.include, xp.exclude) {
+				if shouldMask(fullKey, xp.config.Include, xp.config.Exclude) {
 					maskedValue := serialMasker.mask(trimmedData)
 					maskedString := fmt.Sprintf("%v", maskedValue)
 					if err := encoder.EncodeToken(xml.CharData(maskedString)); err != nil {

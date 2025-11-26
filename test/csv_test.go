@@ -18,8 +18,17 @@ func TestCSVProcessing_Deterministic(t *testing.T) {
 1,John Doe,john.doe@example.com,192.168.1.1,some notes
 2,Jane Smith,jane.smith@example.net,10.0.0.2,more data`
 
+	appConfig := pkg.AppConfig{
+		Format:   "csv",
+		CPUCount: 2,
+		Masker: pkg.MaskerConfig{
+			Method: pkg.MethodDeterministic,
+			Salt:   salt,
+		},
+	}
+
 	var buf bytes.Buffer
-	err := pkg.Start("csv", 2, strings.NewReader(input), &buf, pkg.Deterministic(salt), nil, nil, 0)
+	err := pkg.Start(strings.NewReader(input), &buf, appConfig)
 	require.NoError(t, err)
 
 	output := buf.String()
@@ -51,11 +60,18 @@ func TestCSVProcessing_WithInclude(t *testing.T) {
 1,John Doe,john.doe@example.com,192.168.1.1,some notes
 2,Jane Smith,jane.smith@example.net,10.0.0.2,more data`
 
-	// Only include 'email' and 'ip_address' for masking
-	include := []string{"email", "ip_address"}
+	appConfig := pkg.AppConfig{
+		Format:   "csv",
+		CPUCount: 2,
+		Include:  []string{"email", "ip_address"},
+		Masker: pkg.MaskerConfig{
+			Method: pkg.MethodDeterministic,
+			Salt:   salt,
+		},
+	}
 
 	var buf bytes.Buffer
-	err := pkg.Start("csv", 2, strings.NewReader(input), &buf, pkg.Deterministic(salt), include, nil, 0)
+	err := pkg.Start(strings.NewReader(input), &buf, appConfig)
 	require.NoError(t, err)
 
 	output := buf.String()
@@ -88,11 +104,18 @@ func TestCSVProcessing_WithExclude(t *testing.T) {
 	input := `id,name,email,ip_address,notes
 1,John Doe,john.doe@example.com,192.168.1.1,some notes`
 
-	// Exclude 'id' and 'notes' from masking
-	exclude := []string{"id", "notes"}
+	appConfig := pkg.AppConfig{
+		Format:   "csv",
+		CPUCount: 2,
+		Exclude:  []string{"id", "notes"},
+		Masker: pkg.MaskerConfig{
+			Method: pkg.MethodDeterministic,
+			Salt:   salt,
+		},
+	}
 
 	var buf bytes.Buffer
-	err := pkg.Start("csv", 2, strings.NewReader(input), &buf, pkg.Deterministic(salt), nil, exclude, 0)
+	err := pkg.Start(strings.NewReader(input), &buf, appConfig)
 	require.NoError(t, err)
 
 	output := buf.String()
@@ -102,7 +125,7 @@ func TestCSVProcessing_WithExclude(t *testing.T) {
 	assert.NotContains(t, output, "john.doe@example.com")
 
 	// Verify data that should be preserved is still there
-	assert.Contains(t, output, "1,")         // id is preserved
+	assert.Contains(t, output, "1,")          // id is preserved
 	assert.Contains(t, output, ",some notes") // notes is preserved
 
 	// Verify structure
@@ -110,23 +133,38 @@ func TestCSVProcessing_WithExclude(t *testing.T) {
 	records, err := r.ReadAll()
 	require.NoError(t, err)
 	require.Len(t, records, 2)
-	assert.Equal(t, "1", records[1][0])                      // Preserved
-	assert.NotEqual(t, "John Doe", records[1][1])            // Masked
+	assert.Equal(t, "1", records[1][0])                       // Preserved
+	assert.NotEqual(t, "John Doe", records[1][1])             // Masked
 	assert.NotEqual(t, "john.doe@example.com", records[1][2]) // Masked
 	assert.NotEqual(t, "192.168.1.1", records[1][3])          // Masked
-	assert.Equal(t, "some notes", records[1][4])             // Preserved
+	assert.Equal(t, "some notes", records[1][4])              // Preserved
 }
 
 func TestEmptyReader_CSV(t *testing.T) {
+	appConfig := pkg.AppConfig{
+		Format:   "csv",
+		CPUCount: 1,
+		Masker: pkg.MaskerConfig{
+			Method: pkg.MethodRandom,
+		},
+	}
+
 	var buf bytes.Buffer
-	err := pkg.Start("csv", 1, strings.NewReader(""), &buf, pkg.Random(), nil, nil, 0)
+	err := pkg.Start(strings.NewReader(""), &buf, appConfig)
 	require.NoError(t, err)
 	assert.Equal(t, "", buf.String())
 }
 
 func TestReaderError_CSV(t *testing.T) {
 	errorReader := &errorReader{}
+	appConfig := pkg.AppConfig{
+		Format:   "csv",
+		CPUCount: 1,
+		Masker: pkg.MaskerConfig{
+			Method: pkg.MethodRandom,
+		},
+	}
 	var buf bytes.Buffer
-	err := pkg.Start("csv", 1, errorReader, &buf, pkg.Random(), nil, nil, 0)
+	err := pkg.Start(errorReader, &buf, appConfig)
 	require.Error(t, err)
 }

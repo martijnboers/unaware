@@ -10,7 +10,10 @@ import (
 )
 
 func TestFilteringScenarios(t *testing.T) {
-	strategy := pkg.Deterministic([]byte("static-salt"))
+	deterministicMaskerConfig := pkg.MaskerConfig{
+		Method: pkg.MethodDeterministic,
+		Salt:   []byte("static-salt"),
+	}
 
 	jsonInput := `{
 	"user": {
@@ -74,10 +77,10 @@ func TestFilteringScenarios(t *testing.T) {
 			input:   jsonInput,
 			exclude: []string{"*.id", "*.ip_address"},
 			expected: []string{
-				`"id": "user-123"`,                 // Not masked
-				`"ip_address": "203.0.113.195"`,     // Not masked
-				`"name": "Cute His"`,               // Masked
-				`"transaction_id": "without"`, // Masked
+				`"id": "user-123"`,
+				`"ip_address": "203.0.113.195"`,
+				`"name": "Cute His"`,
+				`"transaction_id": "without"`,
 			},
 		},
 		{
@@ -86,10 +89,10 @@ func TestFilteringScenarios(t *testing.T) {
 			input:   jsonInput,
 			include: []string{"user.personal.*"},
 			expected: []string{
-				`"id": "user-123"`,                 // Not masked (not in include)
-				`"name": "Cute His"`,               // Masked
-				`"email": "clevelandsenger@sawayn.io"`, // Masked
-				`"ip_address": "203.0.113.195"`,     // Not masked
+				`"id": "user-123"`,
+				`"name": "Cute His"`,
+				`"email": "clevelandsenger@sawayn.io"`,
+				`"ip_address": "203.0.113.195"`,
 			},
 		},
 		{
@@ -99,10 +102,10 @@ func TestFilteringScenarios(t *testing.T) {
 			include: []string{"user.*", "user.personal.*", "user.metadata.*"},
 			exclude: []string{"user.id", "user.metadata.last_login"},
 			expected: []string{
-				`"id": "user-123"`,                     // Not masked (excluded)
-				`"name": "Cute His"`,                   // Masked (included)
-				`"last_login": "2023-10-27T10:00:00Z"`, // Not masked (excluded)
-				`"transaction_id": "txn-abc-456"`,     // Not masked (not included)
+				`"id": "user-123"`,
+				`"name": "Cute His"`,
+				`"last_login": "2023-10-27T10:00:00Z"`,
+				`"transaction_id": "txn-abc-456"`,
 			},
 		},
 		// XML Scenarios
@@ -126,8 +129,8 @@ func TestFilteringScenarios(t *testing.T) {
 			exclude: []string{"root.user.id", "root.user.personal.name"},
 			expected: []string{
 				`<user id="user-xyz">`, // Not masked
-				`<name>Jane Doe</name>`,   // Not masked
-				`<email>alfredofritsch@dickinson.net</email>`, // Masked
+				`<name>Jane Doe</name>`,
+				`<email>alfredofritsch@dickinson.net</email>`,
 			},
 		},
 		{
@@ -136,9 +139,9 @@ func TestFilteringScenarios(t *testing.T) {
 			input:   xmlInput,
 			include: []string{"root.user.metadata.*"},
 			expected: []string{
-				`<name>Jane Doe</name>`,                         // Not masked (not included)
-				`<last_login>2001-03-07T14:59:55Z</last_login>`, // Masked
-				`<ip_address>238.108.102.226</ip_address>`,     // Masked
+				`<name>Jane Doe</name>`,
+				`<last_login>2001-03-07T14:59:55Z</last_login>`,
+				`<ip_address>238.108.102.226</ip_address>`,
 			},
 		},
 		{
@@ -148,18 +151,26 @@ func TestFilteringScenarios(t *testing.T) {
 			include: []string{"root.user.*", "root.user.personal.*", "root.user.metadata.*"},
 			exclude: []string{"root.user.id", "root.user.metadata.ip_address"},
 			expected: []string{
-				`<user id="user-xyz">`,                     // Not masked (excluded)
-				`<name>Finally His</name>`,                  // Masked (included)
-				`<ip_address>198.51.100.22</ip_address>`,   // Not masked (excluded)
-				`<transaction_id>txn-def-789</transaction_id>`, // Not masked (not included)
+				`<user id="user-xyz">`,
+				`<name>Finally His</name>`,
+				`<ip_address>198.51.100.22</ip_address>`,
+				`<transaction_id>txn-def-789</transaction_id>`,
 			},
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			appConfig := pkg.AppConfig{
+				Format:   tc.format,
+				CPUCount: 1,
+				Include:  tc.include,
+				Exclude:  tc.exclude,
+				Masker:   deterministicMaskerConfig,
+			}
+
 			var buf bytes.Buffer
-			err := pkg.Start(tc.format, 1, strings.NewReader(tc.input), &buf, strategy, tc.include, tc.exclude, 0)
+			err := pkg.Start(strings.NewReader(tc.input), &buf, appConfig)
 			require.NoError(t, err)
 
 			output := buf.String()

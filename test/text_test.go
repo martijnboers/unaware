@@ -28,7 +28,7 @@ func TestTextProcessor(t *testing.T) {
 			input: "",
 		},
 		{
-			name: "Line with only whitespace",
+			name:  "Line with only whitespace",
 			input: "   \t   \n ",
 		},
 	}
@@ -36,7 +36,14 @@ func TestTextProcessor(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			var buf bytes.Buffer
-			err := pkg.Start("text", 1, strings.NewReader(tc.input), &buf, pkg.Random(), nil, nil, 0)
+			appConfig := pkg.AppConfig{
+				Format:   "text",
+				CPUCount: 1,
+				Masker: pkg.MaskerConfig{
+					Method: pkg.MethodRandom,
+				},
+			}
+			err := pkg.Start(strings.NewReader(tc.input), &buf, appConfig)
 			require.NoError(t, err)
 
 			output := buf.String()
@@ -46,16 +53,13 @@ func TestTextProcessor(t *testing.T) {
 				return
 			}
 
-			// The output should not be the same as the input (unless it's only whitespace)
 			if strings.TrimSpace(tc.input) != "" {
 				assert.NotEqual(t, tc.input, output, "Masked output should not be the same as the input")
 			}
 
-			// The number of lines should be preserved
 			inputLines := strings.Split(tc.input, "\n")
 			outputLines := strings.Split(strings.TrimSuffix(output, "\n"), "\n")
 			assert.Len(t, outputLines, len(inputLines), "Number of lines should be preserved")
-
 		})
 	}
 }

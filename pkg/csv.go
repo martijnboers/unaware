@@ -7,29 +7,23 @@ import (
 	"sync"
 )
 
-// csvProcessor handles the reading, concurrent masking, and writing of CSV data.
 type csvProcessor struct {
+	config        AppConfig
 	methodFactory func() *masker
-	include       []string
-	exclude       []string
 }
 
-// newCSVProcessor creates a new processor for CSV files.
-func newCSVProcessor(strategy MaskingStrategy, include, exclude []string) *csvProcessor {
+func newCSVProcessor(config AppConfig) *csvProcessor {
 	return &csvProcessor{
+		config: config,
 		methodFactory: func() *masker {
-			return newMasker(strategy)
+			return newMasker(config.Masker)
 		},
-		include: include,
-		exclude: exclude,
 	}
 }
 
-// Process orchestrates the reading and assembling of the CSV data.
-func (p *csvProcessor) Process(r io.Reader, w io.Writer, cpuCount int, firstN int) error {
+func (p *csvProcessor) Process(r io.Reader, w io.Writer) error {
 	csvReader := csv.NewReader(r)
 
-	// Read the header to get column names.
 	header, err := csvReader.Read()
 	if err == io.EOF {
 		return nil // Handle empty file
@@ -38,11 +32,12 @@ func (p *csvProcessor) Process(r io.Reader, w io.Writer, cpuCount int, firstN in
 		return fmt.Errorf("error reading CSV header: %w", err)
 	}
 
-	// The chunkReader function reads one row at a time and converts it into a map,
-	// which is the "chunk" our concurrent runner will process.
+	// chunkReader reads one CSV row at a time and converts it into a map.
+	// This map is the "chunk" our concurrent runner will process, providing the
+	// necessary key (column name) for filtering and masking.
 	rowCount := 0
 	chunkReader := func() (any, error) {
-		if firstN > 0 && rowCount >= firstN {
+		if p.config.FirstN > 0 && rowCount >= p.config.FirstN {
 			return nil, io.EOF
 		}
 		record, err := csvReader.Read()
@@ -50,8 +45,6 @@ func (p *csvProcessor) Process(r io.Reader, w io.Writer, cpuCount int, firstN in
 			return nil, err // Let the runner handle io.EOF
 		}
 		rowCount++
-		// Convert the row (a slice of strings) into a map using the header.
-		// This provides the necessary key (column name) for masking.
 		rowMap := make(map[string]any, len(header))
 		for i, value := range record {
 			if i < len(header) {
@@ -65,12 +58,11 @@ func (p *csvProcessor) Process(r io.Reader, w io.Writer, cpuCount int, firstN in
 		header: header,
 		writer: csv.NewWriter(w),
 	}
-	runner := newConcurrentRunner(p.methodFactory, cpuCount, p.include, p.exclude)
+	runner := newConcurrentRunner(p.methodFactory, p.config)
 
 	return runner.Run(w, chunkReader, assembler)
 }
 
-// csvAssembler is responsible for writing the processed data back into a CSV format.
 type csvAssembler struct {
 	header []string
 	writer *csv.Writer
@@ -83,8 +75,6 @@ func (a *csvAssembler) WriteStart(w io.Writer) error {
 }
 
 func (a *csvAssembler) WriteItem(w io.Writer, item any, isFirst bool) error {
-	// The concurrent runner might call this from multiple goroutines,
-	// so we lock to ensure writes are not interleaved.
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
@@ -105,7 +95,7 @@ func (a *csvAssembler) WriteItem(w io.Writer, item any, isFirst bool) error {
 }
 
 func (a *csvAssembler) WriteEnd(w io.Writer) error {
-	// The csv.Writer needs to be flushed to ensure all buffered data is written.
+	// The csv.Writer must be flushed to ensure all buffered data is written.
 	a.writer.Flush()
 	return a.writer.Error()
 }
