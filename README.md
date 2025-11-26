@@ -1,7 +1,7 @@
 ## Description
 `unaware` is a command-line tool for masking sensitive data within JSON, XML, and CSV files. It processes data from files or `stdin` and anonymizes specified property values. Masked values mimick the length and appearance of the original data types.
 
-The program is a cross-platform, statically linked binary with no external dependencies. It leverages streaming and concurrency to efficiently process large files entirely offline.
+The program is a cross-platform, statically linked binary with no external dependencies. It leverages streaming and concurrency to efficiently process large files offline.
 
 ### Installation
 
@@ -57,7 +57,7 @@ You can control which fields are masked using the `-include` and `-exclude` flag
 - **Using `-exclude`:** Specifies fields that *should not* be masked, creating exceptions.
 - **Combining Flags:** When used together, `-exclude` always takes precedence. A field is only masked if it matches an `-include` pattern but does *not* match an `-exclude` pattern. If only `-exclude` is used, all fields are masked *except* for those that match an exclusion pattern.
 
-This allows for precise control. For example, given `data.json`:
+For example, given `data.json`:
 ```json
 {
   "user": {

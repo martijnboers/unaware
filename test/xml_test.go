@@ -64,31 +64,36 @@ func TestXMLProcessing_Structured(t *testing.T) {
 	require.NoError(t, err)
 	inputWithHeader := append([]byte(xml.Header), inputBytes...)
 
+	appConfig := pkg.AppConfig{
+		Format:   "xml",
+		CPUCount: 1,
+		Masker: pkg.MaskerConfig{
+			Method: pkg.MethodDeterministic,
+			Salt:   salt,
+		},
+	}
+
 	var buf bytes.Buffer
-	err = pkg.Start("xml", 1, bytes.NewReader(inputWithHeader), &buf, pkg.Deterministic(salt), nil, nil, 0)
+	err = pkg.Start(bytes.NewReader(inputWithHeader), &buf, appConfig)
 	require.NoError(t, err)
 
 	var output ComplexXML
 	err = xml.Unmarshal(buf.Bytes(), &output)
 	require.NoError(t, err, "Output should be valid XML parsable into the struct. Got: %s", buf.String())
 
-	// Assert that sensitive values have been changed
 	assert.NotEqual(t, input.Metadata.Timestamp, output.Metadata.Timestamp, "Timestamp should be masked")
 	require.Len(t, output.DataItems, len(input.DataItems), "DataItems length should be preserved")
 
-	// Assert Item 1
 	assert.NotEqual(t, input.DataItems[0].Key, output.DataItems[0].Key, "Item 1 Key should be masked")
 	assert.NotEqual(t, input.DataItems[0].Value, output.DataItems[0].Value, "Item 1 Value should be masked")
 	assert.NotEqual(t, input.DataItems[0].Details.IP, output.DataItems[0].Details.IP, "Item 1 IP should be masked")
 	assert.NotEqual(t, input.DataItems[0].Details.MAC, output.DataItems[0].Details.MAC, "Item 1 MAC should be masked")
 
-	// Assert Item 2
 	assert.NotEqual(t, input.DataItems[1].Key, output.DataItems[1].Key, "Item 2 Key should be masked")
 	assert.NotEqual(t, input.DataItems[1].Value, output.DataItems[1].Value, "Item 2 Value should be masked")
 	assert.NotEqual(t, input.DataItems[1].Details.IP, output.DataItems[1].Details.IP, "Item 2 IP should be masked")
 	assert.NotEqual(t, input.DataItems[1].Details.MAC, output.DataItems[1].Details.MAC, "Item 2 MAC should be masked")
 
-	// Assert that the original values are not in the output string
 	outputString := buf.String()
 	assert.NotContains(t, outputString, "Some sensitive data")
 	assert.NotContains(t, outputString, "More private info")
@@ -103,8 +108,17 @@ func TestXMLStreaming(t *testing.T) {
 				<item id="3">data3</item>
 			</items>`
 
+	appConfig := pkg.AppConfig{
+		Format:   "xml",
+		CPUCount: 1,
+		Masker: pkg.MaskerConfig{
+			Method: pkg.MethodDeterministic,
+			Salt:   salt,
+		},
+	}
+
 	var buf bytes.Buffer
-	err := pkg.Start("xml", 1, strings.NewReader(input), &buf, pkg.Deterministic(salt), nil, nil, 0)
+	err := pkg.Start(strings.NewReader(input), &buf, appConfig)
 	require.NoError(t, err)
 
 	output := buf.String()

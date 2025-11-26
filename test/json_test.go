@@ -93,8 +93,17 @@ func TestJSONProcessing_Structured(t *testing.T) {
 	inputBytes, err := json.MarshalIndent(input, "", "  ")
 	require.NoError(t, err)
 
+	appConfig := pkg.AppConfig{
+		Format:   "json",
+		CPUCount: 1,
+		Masker: pkg.MaskerConfig{
+			Method: pkg.MethodDeterministic,
+			Salt:   salt,
+		},
+	}
+
 	var buf bytes.Buffer
-	err = pkg.Start("json", 1, bytes.NewReader(inputBytes), &buf, pkg.Deterministic(salt), nil, nil, 0)
+	err = pkg.Start(bytes.NewReader(inputBytes), &buf, appConfig)
 	require.NoError(t, err)
 
 	var output ComplexJSON
@@ -142,8 +151,17 @@ func TestJSONStreamingArray(t *testing.T) {
 		{"id": 3, "data": "third"}
 	]`
 
+	appConfig := pkg.AppConfig{
+		Format:   "json",
+		CPUCount: 1,
+		Masker: pkg.MaskerConfig{
+			Method: pkg.MethodDeterministic,
+			Salt:   salt,
+		},
+	}
+
 	var buf bytes.Buffer
-	err := pkg.Start("json", 1, strings.NewReader(input), &buf, pkg.Deterministic(salt), nil, nil, 0)
+	err := pkg.Start(strings.NewReader(input), &buf, appConfig)
 	require.NoError(t, err)
 
 	output := buf.String()
@@ -159,16 +177,31 @@ func TestJSONStreamingArray(t *testing.T) {
 }
 
 func TestEmptyReader(t *testing.T) {
+	appConfig := pkg.AppConfig{
+		Format:   "json",
+		CPUCount: 1,
+		Masker: pkg.MaskerConfig{
+			Method: pkg.MethodRandom,
+		},
+	}
+
 	var buf bytes.Buffer
-	err := pkg.Start("json", 1, strings.NewReader(""), &buf, pkg.Random(), nil, nil, 0)
+	err := pkg.Start(strings.NewReader(""), &buf, appConfig)
 	require.NoError(t, err)
 	assert.Equal(t, "", buf.String())
 }
 
 func TestReaderError(t *testing.T) {
 	errorReader := &errorReader{}
+	appConfig := pkg.AppConfig{
+		Format:   "json",
+		CPUCount: 1,
+		Masker: pkg.MaskerConfig{
+			Method: pkg.MethodRandom,
+		},
+	}
 	var buf bytes.Buffer
-	err := pkg.Start("json", 1, errorReader, &buf, pkg.Random(), nil, nil, 0)
+	err := pkg.Start(errorReader, &buf, appConfig)
 	require.Error(t, err)
 }
 
@@ -182,9 +215,18 @@ func TestJSONStreamingNestedArray(t *testing.T) {
 		]
 	}`
 
+	appConfig := pkg.AppConfig{
+		Format:   "json",
+		CPUCount: 2,
+		Masker: pkg.MaskerConfig{
+			Method: pkg.MethodDeterministic,
+			Salt:   salt,
+		},
+	}
+
 	var buf bytes.Buffer
 	// Use 2 CPUs to ensure concurrency is tested
-	err := pkg.Start("json", 2, strings.NewReader(input), &buf, pkg.Deterministic(salt), nil, nil, 0)
+	err := pkg.Start(strings.NewReader(input), &buf, appConfig)
 	require.NoError(t, err)
 
 	output := buf.String()

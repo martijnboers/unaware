@@ -1,7 +1,6 @@
 package pkg
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -9,22 +8,21 @@ import (
 )
 
 type jsonProcessor struct {
+	config        AppConfig
 	methodFactory func() *masker
-	include       []string
-	exclude       []string
 }
 
-func newJSONProcessor(strategy MaskingStrategy, include, exclude []string) *jsonProcessor {
+// newJSONProcessor creates a new processor for JSON files.
+func newJSONProcessor(config AppConfig) *jsonProcessor {
 	return &jsonProcessor{
+		config: config,
 		methodFactory: func() *masker {
-			return newMasker(strategy)
+			return newMasker(config.Masker)
 		},
-		include: include,
-		exclude: exclude,
 	}
 }
 
-func (jp *jsonProcessor) Process(r io.Reader, w io.Writer, cpuCount int, firstN int) error {
+func (jp *jsonProcessor) Process(r io.Reader, w io.Writer) error {
 	br := newPeekingReader(r)
 	firstChar, err := br.PeekFirstChar()
 	if err == io.EOF {
@@ -35,21 +33,21 @@ func (jp *jsonProcessor) Process(r io.Reader, w io.Writer, cpuCount int, firstN 
 	}
 
 	if firstChar == '[' {
-		return jp.processRootArray(br, w, cpuCount, firstN)
+		return jp.processRootArray(br, w)
 	}
 
-	// Note: --first is not applied for single root object JSON as there is only one "record".
-	return jp.processConcurrentObject(br, w, cpuCount)
+	// Note: -first is not applied for single root object JSON as there is only one "record".
+	return jp.processConcurrentObject(br, w)
 }
 
-func (jp *jsonProcessor) processRootArray(r io.Reader, w io.Writer, cpuCount int, firstN int) error {
-	runner := newConcurrentRunner(jp.methodFactory, cpuCount, jp.include, jp.exclude)
+func (jp *jsonProcessor) processRootArray(r io.Reader, w io.Writer) error {
+	runner := newConcurrentRunner(jp.methodFactory, jp.config)
 	decoder := json.NewDecoder(r)
 	decoder.UseNumber()
 	_, _ = decoder.Token() // consume '['
 	recordCount := 0
 	chunkReader := func() (any, error) {
-		if firstN > 0 && recordCount >= firstN {
+		if jp.config.FirstN > 0 && recordCount >= jp.config.FirstN {
 			return nil, io.EOF
 		}
 		if !decoder.More() {
@@ -67,100 +65,35 @@ func (jp *jsonProcessor) processRootArray(r io.Reader, w io.Writer, cpuCount int
 	return runner.Run(w, chunkReader, &jsonAssembler{isRootArray: true})
 }
 
-func (jp *jsonProcessor) processConcurrentObject(r io.Reader, w io.Writer, cpuCount int) error {
+// processConcurrentObject handles the masking of a single root JSON object.
+//
+// This method intentionally reads the entire object into memory rather than
+// streaming it. This is a design trade-off to ensure correctness and simplify the
+// implementation, avoiding the complexity and bugs associated with manually
+// handling nested structures.
+//
+// The primary, performance-critical use case—a root-level array of objects—is
+// handled by `processRootArray` which *is* fully streaming and concurrent.
+// This function serves as a robust fallback for the less common case of a
+// single, large root object.
+func (jp *jsonProcessor) processConcurrentObject(r io.Reader, w io.Writer) error {
 	decoder := json.NewDecoder(r)
 	decoder.UseNumber()
+	encoder := json.NewEncoder(w)
+	encoder.SetIndent("  ", "  ")
 
-	if _, err := decoder.Token(); err != nil { // consume '{'
-		return err
-	}
-	if _, err := w.Write([]byte("{\n")); err != nil {
-		return err
-	}
-
-	isFirst := true
-	for decoder.More() {
-		if !isFirst {
-			if _, err := w.Write([]byte(",\n")); err != nil {
-				return err
-			}
-		}
-		isFirst = false
-
-		keyToken, err := decoder.Token()
-		if err != nil {
-			return err
-		}
-		key, ok := keyToken.(string)
-		if !ok {
-			return fmt.Errorf("expected string key, got %T", keyToken)
-		}
-
-		keyBytes, _ := json.Marshal(key)
-		if _, err := w.Write(keyBytes); err != nil {
-			return err
-		}
-		if _, err := w.Write([]byte(": ")); err != nil {
-			return err
-		}
-
-		// We decode the next value into json.RawMessage instead of a fully-parsed interface{}. 
-		// This buffers just this single value, allowing us to inspect its type 
-		// (e.g., to see if it's an array) without having to buffer the entire io.Reader. 
-		// This is a compromise that enables opportunistic concurrency for top-level arrays 
-		// in an object while maintaining a streaming approach for the overall structure.
-		var rawVal json.RawMessage
-		if err := decoder.Decode(&rawVal); err != nil {
-			return err
-		}
-
-		trimmedVal := bytes.TrimSpace(rawVal)
-		if len(trimmedVal) > 0 && trimmedVal[0] == '[' {
-			if _, err := w.Write([]byte("[\n")); err != nil {
-				return err
-			}
-			arrDecoder := json.NewDecoder(bytes.NewReader(trimmedVal))
-			arrDecoder.UseNumber()
-			_, _ = arrDecoder.Token()
-
-			runner := newConcurrentRunner(jp.methodFactory, cpuCount, jp.include, jp.exclude)
-			runner.Root = key
-			chunkReader := func() (any, error) {
-				if !arrDecoder.More() {
-					return nil, io.EOF
-				}
-				var chunk any
-				err := arrDecoder.Decode(&chunk)
-				return chunk, err
-			}
-			assembler := &jsonAssembler{}
-			if err := runner.Run(w, chunkReader, assembler); err != nil {
-				return err
-			}
-			if _, err := w.Write([]byte("\n]")); err != nil {
-				return err
-			}
-		} else {
-			valDecoder := json.NewDecoder(bytes.NewReader(rawVal))
-			valDecoder.UseNumber()
-			var val any
-			if err := valDecoder.Decode(&val); err != nil {
-				return err
-			}
-			maskedVal := jp.recursiveMask(jp.methodFactory(), key, val)
-			maskedBytes, err := json.MarshalIndent(maskedVal, "  ", "  ")
-			if err != nil {
-				return err
-			}
-			if _, err := w.Write(maskedBytes); err != nil {
-				return err
-			}
-		}
+	var rawData map[string]any
+	if err := decoder.Decode(&rawData); err != nil {
+		return fmt.Errorf("error decoding root JSON object: %w", err)
 	}
 
-	if _, err := w.Write([]byte("\n}")); err != nil {
-		return err
+	m := newMasker(jp.config.Masker)
+	maskedData := jp.recursiveMask(m, "", rawData)
+
+	if err := encoder.Encode(maskedData); err != nil {
+		return fmt.Errorf("error encoding masked JSON object: %w", err)
 	}
+
 	return nil
 }
 
@@ -170,7 +103,7 @@ type jsonAssembler struct {
 
 func (a *jsonAssembler) WriteStart(w io.Writer) error {
 	if a.isRootArray {
-		_, err := w.Write([]byte("[\n"))
+		_, err := w.Write([]byte("["))
 		return err
 	}
 	return nil
@@ -178,7 +111,7 @@ func (a *jsonAssembler) WriteStart(w io.Writer) error {
 
 func (a *jsonAssembler) WriteItem(w io.Writer, item any, isFirst bool) error {
 	if !isFirst {
-		if _, err := w.Write([]byte(",\n")); err != nil {
+		if _, err := w.Write([]byte(",")); err != nil {
 			return err
 		}
 	}
@@ -189,7 +122,7 @@ func (a *jsonAssembler) WriteItem(w io.Writer, item any, isFirst bool) error {
 
 func (a *jsonAssembler) WriteEnd(w io.Writer) error {
 	if a.isRootArray {
-		_, err := w.Write([]byte("\n]\n"))
+		_, err := w.Write([]byte("]\n"))
 		return err
 	}
 	return nil
@@ -247,7 +180,7 @@ func isWhitespace(c byte) bool { return c == ' ' || c == '\n' || c == '\r' || c 
 func (jp *jsonProcessor) recursiveMask(m *masker, key string, data any) any {
 	switch v := data.(type) {
 	case json.Number:
-		if shouldMask(key, jp.include, jp.exclude) {
+		if shouldMask(key, jp.config.Include, jp.config.Exclude) {
 			s := v.String()
 			if strings.Contains(s, ".") {
 				parts := strings.Split(s, ".")
@@ -258,7 +191,7 @@ func (jp *jsonProcessor) recursiveMask(m *masker, key string, data any) any {
 		}
 		return v
 	case string, bool, nil:
-		if shouldMask(key, jp.include, jp.exclude) {
+		if shouldMask(key, jp.config.Include, jp.config.Exclude) {
 			return m.mask(v)
 		}
 		return v
@@ -279,6 +212,6 @@ func (jp *jsonProcessor) recursiveMask(m *masker, key string, data any) any {
 		}
 		return maskedSlice
 	default:
-		return v // Return unsupported types as is
+		return v
 	}
 }

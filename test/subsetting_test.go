@@ -40,58 +40,57 @@ David`
 
 func TestSubsettingFirstN(t *testing.T) {
 	testCases := []struct {
-		name          string
-		format        string
-		input         string
-		firstN        int
-		expectedCount int
-		// Assertions for presence/absence of *original* data or structural elements.
-		assertContains string
+		name              string
+		format            string
+		input             string
+		firstN            int
+		expectedCount     int
+		assertContains    string
 		assertNotContains string
 	}{
 		{
-			name:            "JSON First 2",
-			format:          "json",
-			input:           jsonInputSubset,
-			firstN:          2,
-			expectedCount:   2,
-			assertContains:  `"id":`,
+			name:              "JSON First 2",
+			format:            "json",
+			input:             jsonInputSubset,
+			firstN:            2,
+			expectedCount:     2,
+			assertContains:    `"id":`,
 			assertNotContains: `"name": "Charlie"`,
 		},
 		{
-			name:            "JSON First 0 (All)",
-			format:          "json",
-			input:           jsonInputSubset,
-			firstN:          0,
-			expectedCount:   4,
-			assertContains:  `"id":`,
+			name:              "JSON First 0 (All)",
+			format:            "json",
+			input:             jsonInputSubset,
+			firstN:            0,
+			expectedCount:     4,
+			assertContains:    `"id":`,
 			assertNotContains: `"name": "Alice"`,
 		},
 		{
-			name:            "XML First 2",
-			format:          "xml",
-			input:           xmlInputSubset,
-			firstN:          2,
-			expectedCount:   2,
-			assertContains:  `<id>`,
+			name:              "XML First 2",
+			format:            "xml",
+			input:             xmlInputSubset,
+			firstN:            2,
+			expectedCount:     2,
+			assertContains:    `<id>`,
 			assertNotContains: `<name>Charlie</name>`,
 		},
 		{
-			name:            "CSV First 2",
-			format:          "csv",
-			input:           csvInputSubset,
-			firstN:          2,
-			expectedCount:   2, // Data rows
-			assertContains:  "id,name", // Header should be present
+			name:              "CSV First 2",
+			format:            "csv",
+			input:             csvInputSubset,
+			firstN:            2,
+			expectedCount:     2, // Data rows
+			assertContains:    "id,name",
 			assertNotContains: "3,Charlie",
 		},
 		{
-			name:            "Text First 2",
-			format:          "text",
-			input:           textInputSubset,
-			firstN:          2,
-			expectedCount:   2,
-			assertContains:  "\n", // To check if multiple lines are present
+			name:              "Text First 2",
+			format:            "text",
+			input:             textInputSubset,
+			firstN:            2,
+			expectedCount:     2,
+			assertContains:    "\n",
 			assertNotContains: "Charlie",
 		},
 	}
@@ -100,14 +99,21 @@ func TestSubsettingFirstN(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			in := strings.NewReader(tc.input)
 			var out bytes.Buffer
-			strategy := pkg.Random() // Using random strategy for these tests
 
-			err := pkg.Start(tc.format, 1, in, &out, strategy, nil, nil, tc.firstN)
+			appConfig := pkg.AppConfig{
+				Format:   tc.format,
+				CPUCount: 1,
+				FirstN:   tc.firstN,
+				Masker: pkg.MaskerConfig{
+					Method: pkg.MethodRandom,
+				},
+			}
+
+			err := pkg.Start(in, &out, appConfig)
 			require.NoError(t, err)
 
 			outputStr := out.String()
 
-			// General assertions for content presence/absence
 			if tc.assertContains != "" {
 				assert.Contains(t, outputStr, tc.assertContains, "Output should contain expected substring")
 			}
@@ -115,7 +121,6 @@ func TestSubsettingFirstN(t *testing.T) {
 				assert.NotContains(t, outputStr, tc.assertNotContains, "Output should not contain unexpected substring")
 			}
 
-			// Format-specific validation and count
 			switch tc.format {
 			case "json":
 				var result []map[string]any
@@ -123,17 +128,14 @@ func TestSubsettingFirstN(t *testing.T) {
 				require.NoError(t, err, "Output should be valid JSON")
 				assert.Len(t, result, tc.expectedCount, "JSON array length should match expected count")
 			case "xml":
-				// Check if it's valid XML
 				var xmlParsed any
 				require.NoError(t, xml.Unmarshal(out.Bytes(), &xmlParsed), "Output should be valid XML")
-				// Count the number of <user> elements within the root <users> element
 				count := strings.Count(outputStr, "<user>")
 				assert.Equal(t, tc.expectedCount, count, "XML <user> count should match expected count")
 			case "csv":
 				r := csv.NewReader(&out)
 				records, err := r.ReadAll()
 				require.NoError(t, err, "Output should be valid CSV")
-				// expectedCount is for data rows, plus 1 for the header
 				assert.Len(t, records, tc.expectedCount+1, "CSV record count (including header) should match expected")
 			case "text":
 				lines := strings.Split(strings.TrimSpace(outputStr), "\n")

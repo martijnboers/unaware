@@ -22,26 +22,51 @@ import (
 	"golang.org/x/text/language"
 )
 
-type processor interface {
-	Process(r io.Reader, w io.Writer, cpuCount int, firstN int) error
+// AppConfig holds the complete configuration for a masking operation.
+type AppConfig struct {
+	Format   string
+	CPUCount int
+	Include  []string
+	Exclude  []string
+	FirstN   int
+	Masker   MaskerConfig
 }
 
-func Start(format string, cpuCount int, r io.Reader, w io.Writer, strategy MaskingStrategy, include, exclude []string, firstN int) error {
+type processor interface {
+	Process(r io.Reader, w io.Writer) error
+}
+
+// MaskingMethod is an enum for the available masking methods.
+type MaskingMethod string
+
+const (
+	MethodRandom        MaskingMethod = "random"
+	MethodDeterministic MaskingMethod = "deterministic"
+)
+
+// MaskerConfig holds all the configuration for a masker.
+type MaskerConfig struct {
+	Method MaskingMethod
+	Salt   []byte // Only used for deterministic method
+}
+
+// Start initiates the masking process based on the provided configuration.
+func Start(r io.Reader, w io.Writer, config AppConfig) error {
 	var p processor
-	switch format {
+	switch config.Format {
 	case "json":
-		p = newJSONProcessor(strategy, include, exclude)
+		p = newJSONProcessor(config)
 	case "xml":
-		p = newXMLProcessor(strategy, include, exclude)
+		p = newXMLProcessor(config)
 	case "csv":
-		p = newCSVProcessor(strategy, include, exclude)
+		p = newCSVProcessor(config)
 	case "text":
-		p = newTextProcessor(strategy, include, exclude)
+		p = newTextProcessor(config)
 	default:
-		return fmt.Errorf("unsupported format: %s", format)
+		return fmt.Errorf("unsupported format: %s", config.Format)
 	}
 
-	return p.Process(r, w, cpuCount, firstN)
+	return p.Process(r, w)
 }
 
 func shouldMask(key string, include, exclude []string) bool {
@@ -104,31 +129,23 @@ func (ds *deterministicSeeder) createSeed(s string) int64 {
 	return int64(binary.BigEndian.Uint64(seedBytes))
 }
 
-type MaskingStrategy func(*masker)
-
-func Deterministic(salt []byte) MaskingStrategy {
-	return func(m *masker) {
-		m.seeder = &deterministicSeeder{salt: salt}
-		cache, err := ristretto.NewCache(&ristretto.Config{
-			NumCounters: 1e7,     // number of keys to track frequency of (10M).
-			MaxCost:     1 << 30, // maximum cost of cache (1GB).
-			BufferItems: 64,      // number of keys per Get buffer.
-		})
-		if err != nil {
-			panic(err)
-		}
-		m.cache = cache
-	}
-}
-
 type randomSeeder struct{}
 
 func (rs *randomSeeder) SeedFaker(f *gofakeit.Faker, input any)          { /* No-op */ }
 func (rs *randomSeeder) SeedFakerForWord(f *gofakeit.Faker, word string) { /* No-op */ }
 
-func Random() MaskingStrategy {
-	return func(m *masker) {
-		m.seeder = &randomSeeder{}
+// concurrentRunner orchestrates concurrent processing of data chunks.
+type concurrentRunner struct {
+	methodFactory func() *masker
+	config        AppConfig // The entire AppConfig is now passed
+	Root          string    // Used for XML to define the root element name for chunking
+}
+
+// newConcurrentRunner creates a new concurrentRunner.
+func newConcurrentRunner(methodFactory func() *masker, config AppConfig) *concurrentRunner {
+	return &concurrentRunner{
+		methodFactory: methodFactory,
+		config:        config,
 	}
 }
 
@@ -141,7 +158,7 @@ type masker struct {
 	numLikeRegex *regexp.Regexp
 }
 
-func newMasker(strategy MaskingStrategy) *masker {
+func newMasker(config MaskerConfig) *masker {
 	m := &masker{
 		dateLayouts: []string{
 			time.RFC3339,
@@ -156,12 +173,27 @@ func newMasker(strategy MaskingStrategy) *masker {
 		emailRegex:   regexp.MustCompile(`^[^@\s]+@[^@\s]+\.[^@\s]+$`),
 		numLikeRegex: regexp.MustCompile(`^[\d\s-]+$`),
 	}
-	strategy(m)
-	if _, ok := m.seeder.(*deterministicSeeder); ok {
+
+	switch config.Method {
+	case MethodDeterministic:
+		m.seeder = &deterministicSeeder{salt: config.Salt}
+		cache, err := ristretto.NewCache(&ristretto.Config{
+			NumCounters: 1e7,     // number of keys to track frequency of (10M).
+			MaxCost:     1 << 30, // maximum cost of cache (1GB).
+			BufferItems: 64,      // number of keys per Get buffer.
+		})
+		if err != nil {
+			panic(err)
+		}
+		m.cache = cache
 		m.faker = gofakeit.NewUnlocked(1)
-	} else {
+	case MethodRandom:
+		m.seeder = &randomSeeder{}
 		m.faker = gofakeit.New(0)
+	default:
+		panic("unknown masking method") // Should not happen with validation
 	}
+
 	return m
 }
 

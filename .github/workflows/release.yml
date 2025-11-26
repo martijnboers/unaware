@@ -23,6 +23,7 @@ jobs:
         goarch: ${{ matrix.goarch }}
         goversion: "1.25.2"
         binary_name: "unaware"
+        md5sum: false
         compress_assets: "OFF"
         ldflags: "-s -w"
         pre_command: export CGO_ENABLED=0
