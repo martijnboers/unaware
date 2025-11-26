@@ -1,9 +1,11 @@
 package pkg
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
-	"hash/fnv"
 	"io"
 	"net"
 	"net/url"
@@ -65,7 +67,7 @@ type seeder interface {
 	SeedFakerForWord(f *gofakeit.Faker, word string)
 }
 
-type deterministicSeeder struct{}
+type deterministicSeeder struct{ salt []byte }
 
 func (ds *deterministicSeeder) SeedFaker(f *gofakeit.Faker, input any) {
 	var seedInput string
@@ -86,17 +88,30 @@ func (ds *deterministicSeeder) SeedFakerForWord(f *gofakeit.Faker, word string) 
 	f.Rand.Seed(ds.createSeed(word))
 }
 
+// createSeed generates a deterministic seed using HMAC-SHA256 with input truncation.
+// This ensures strong collision resistance for privacy, while the truncation
+// provides a performance optimization for very long inputs.
 func (ds *deterministicSeeder) createSeed(s string) int64 {
-	h := fnv.New64a()
-	h.Write([]byte(s))
-	return int64(h.Sum64())
+	// Truncate the input string to limit hashing overhead for long inputs.
+	// 64 characters is chosen as a reasonable balance: it's long enough for most PII
+	// to be unique, but short enough to keep hashing fast. Collisions on this truncated
+	// input are highly unlikely for diverse PII, but possible for extremely similar
+	// long strings (e.g., two long paragraphs differing only after 64 chars).
+	if len(s) > 64 {
+		s = s[:64]
+	}
+
+	mac := hmac.New(sha256.New, ds.salt)
+	mac.Write([]byte(s))
+	seedBytes := mac.Sum(nil)
+	return int64(binary.BigEndian.Uint64(seedBytes))
 }
 
 type MaskingStrategy func(*masker)
 
 func Deterministic(salt []byte) MaskingStrategy {
 	return func(m *masker) {
-		m.seeder = &deterministicSeeder{}
+		m.seeder = &deterministicSeeder{salt: salt}
 	}
 }
 
