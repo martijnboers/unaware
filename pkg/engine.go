@@ -67,9 +67,9 @@ type seeder interface {
 	SeedFakerForWord(f *gofakeit.Faker, word string)
 }
 
-type hashedSeeder struct{ salt []byte }
+type deterministicSeeder struct{ salt []byte }
 
-func (hs *hashedSeeder) SeedFaker(f *gofakeit.Faker, input any) {
+func (hs *deterministicSeeder) SeedFaker(f *gofakeit.Faker, input any) {
 	var seedInput string
 	switch v := input.(type) {
 	case string:
@@ -83,10 +83,10 @@ func (hs *hashedSeeder) SeedFaker(f *gofakeit.Faker, input any) {
 	}
 	f.Rand.Seed(hs.createSeed(seedInput))
 }
-func (hs *hashedSeeder) SeedFakerForWord(f *gofakeit.Faker, word string) {
+func (hs *deterministicSeeder) SeedFakerForWord(f *gofakeit.Faker, word string) {
 	f.Rand.Seed(hs.createSeed(word))
 }
-func (hs *hashedSeeder) createSeed(s string) int64 {
+func (hs *deterministicSeeder) createSeed(s string) int64 {
 	mac := hmac.New(sha256.New, hs.salt)
 	mac.Write([]byte(s))
 	seedBytes := mac.Sum(nil)
@@ -95,9 +95,9 @@ func (hs *hashedSeeder) createSeed(s string) int64 {
 
 type MaskingStrategy func(*masker)
 
-func Hashed(salt []byte) MaskingStrategy {
+func Deterministic(salt []byte) MaskingStrategy {
 	return func(m *masker) {
-		m.seeder = &hashedSeeder{salt: salt}
+		m.seeder = &deterministicSeeder{salt: salt}
 	}
 }
 
@@ -136,7 +136,7 @@ func newMasker(strategy MaskingStrategy) *masker {
 		numLikeRegex: regexp.MustCompile(`^[\d\s-]+$`),
 	}
 	strategy(m)
-	if _, ok := m.seeder.(*hashedSeeder); ok {
+	if _, ok := m.seeder.(*deterministicSeeder); ok {
 		m.faker = gofakeit.NewUnlocked(1)
 	} else {
 		m.faker = gofakeit.New(0)

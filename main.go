@@ -23,15 +23,15 @@ func (s *stringSlice) Set(value string) error {
 
 func main() {
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Anonymize data in JSON and XML files by replacing values with realistic-looking fakes.\n\n")
-		fmt.Fprintf(os.Stderr, "Use the -method hashed option to preserve relationships by ensuring identical input values get the same masked output value. \n\n")
+		fmt.Fprintf(os.Stderr, "Anonymize data in JSON, XML, and CSV files by replacing values with realistic-looking fakes.\n\n")
+		fmt.Fprintf(os.Stderr, "Use the -method deterministic option to preserve relationships by ensuring identical input values get the same masked output value. \n\n")
 		fmt.Fprintf(os.Stderr, "By default every run uses a random salt, use STATIC_SALT=test123 environment variable for consistent masking.")
 
 		flag.PrintDefaults()
 	}
 
 	format := flag.String("format", "json", "The format of the input data (json, xml, csv, or text)")
-	methodFlag := flag.String("method", "random", "Method of masking (random or hashed)")
+	methodFlag := flag.String("method", "random", "Method of masking (random or deterministic)")
 	inputFile := flag.String("in", "", "Input file path (default: stdin)")
 	outputFile := flag.String("out", "", "Output file path (default: stdout)")
 	cpuCount := flag.Int("cpu", 4, "Numbers of cpu cores used")
@@ -44,7 +44,7 @@ func main() {
 
 	var strategy pkg.MaskingStrategy
 	switch *methodFlag {
-	case "hashed":
+	case "deterministic":
 		var salt []byte
 		if staticSalt := os.Getenv("STATIC_SALT"); staticSalt != "" {
 			salt = []byte(staticSalt)
@@ -55,7 +55,7 @@ func main() {
 				os.Exit(1)
 			}
 		}
-		strategy = pkg.Hashed(salt)
+		strategy = pkg.Deterministic(salt)
 	case "random":
 		strategy = pkg.Random()
 	default:

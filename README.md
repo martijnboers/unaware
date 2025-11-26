@@ -15,7 +15,7 @@ Alternatively, check the releases page for pre-built binaries.
 ```
 Anonymize data in JSON, XML, and CSV files by replacing values with realistic-looking alternatives.
 
-Use the -method hashed option to preserve relationships by ensuring identical
+Use the -method deterministic option to preserve relationships by ensuring identical
 input values get the same masked output value. By default every run uses a
 random salt, use STATIC_SALT=test123 environment variable for consistent
 masking.
@@ -31,7 +31,7 @@ masking.
   -include value
     	Glob pattern to include keys for masking (can be specified multiple times)
   -method string
-    	Method of masking (random or hashed) (default "random")
+    	Method of masking (random or deterministic) (default "random")
   -out string
     	Output file path (default: stdout)
 ```
@@ -43,14 +43,19 @@ masking.
 ./unaware -in source.json -out anonymized.json
 ```
 
-#### XML from stdin with hashed (deterministic) masking
+#### XML from stdin with deterministic masking
 ```shell
-cat source.xml | ./unaware -format xml -method hashed > masked.xml
+cat source.xml | ./unaware -format xml -method deterministic > masked.xml
 ```
 
 ### Filtering
 
 You can control which fields are masked using the `-include` and `-exclude` flags, which both accept glob patterns (e.g., `user.*`, `session.ip_*`).
+
+- **Default Behavior:** If no flags are used, all fields are masked.
+- **Using `-include`:** Specifies which fields *should* be masked. When `-include` patterns are used, only fields matching them will be considered for masking.
+- **Using `-exclude`:** Specifies fields that *should not* be masked, creating exceptions.
+- **Combining Flags:** When used together, `-exclude` always takes precedence. A field is only masked if it matches an `-include` pattern but does *not* match an `-exclude` pattern. If only `-exclude` is used, all fields are masked *except* for those that match an exclusion pattern.
 
 This allows for precise control. For example, given `data.json`:
 ```json
@@ -76,6 +81,9 @@ This allows for precise control. For example, given `data.json`:
 ```shell
 ./unaware -in data.json -include 'user.personal_info.*' -include 'session.ip_address' -exclude 'user.personal_info.subscriber'
 ```
+
+**Explanation:**
+The command first designates all fields under `user.personal_info` and `session.ip_address` for masking with the `-include` flags. Then, the `-exclude` flag creates an exception for `user.personal_info.subscriber`, preventing it from being masked even though it was matched by the include pattern.
 
 **Result:**
 ```json

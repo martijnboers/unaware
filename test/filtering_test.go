@@ -10,7 +10,7 @@ import (
 )
 
 func TestFilteringScenarios(t *testing.T) {
-	strategy := pkg.Hashed([]byte("static-salt"))
+	strategy := pkg.Deterministic([]byte("static-salt"))
 
 	jsonInput := `{
 	"user": {

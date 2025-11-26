@@ -94,7 +94,7 @@ func TestJSONProcessing_Structured(t *testing.T) {
 	require.NoError(t, err)
 
 	var buf bytes.Buffer
-	err = pkg.Start("json", 1, bytes.NewReader(inputBytes), &buf, pkg.Hashed(salt), nil, nil)
+	err = pkg.Start("json", 1, bytes.NewReader(inputBytes), &buf, pkg.Deterministic(salt), nil, nil)
 	require.NoError(t, err)
 
 	var output ComplexJSON
@@ -143,7 +143,7 @@ func TestJSONStreamingArray(t *testing.T) {
 	]`
 
 	var buf bytes.Buffer
-	err := pkg.Start("json", 1, strings.NewReader(input), &buf, pkg.Hashed(salt), nil, nil)
+	err := pkg.Start("json", 1, strings.NewReader(input), &buf, pkg.Deterministic(salt), nil, nil)
 	require.NoError(t, err)
 
 	output := buf.String()
@@ -181,7 +181,7 @@ func TestJSONStreamingNestedArray(t *testing.T) {
 
 	var buf bytes.Buffer
 	// Use 2 CPUs to ensure concurrency is tested
-	err := pkg.Start("json", 2, strings.NewReader(input), &buf, pkg.Hashed(salt), nil, nil)
+	err := pkg.Start("json", 2, strings.NewReader(input), &buf, pkg.Deterministic(salt), nil, nil)
 	require.NoError(t, err)
 
 	output := buf.String()

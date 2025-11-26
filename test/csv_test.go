@@ -12,14 +12,14 @@ import (
 	"unaware/pkg"
 )
 
-func TestCSVProcessing_Hashed(t *testing.T) {
+func TestCSVProcessing_Deterministic(t *testing.T) {
 	salt := []byte("csv-salt")
 	input := `id,name,email,ip_address,notes
 1,John Doe,john.doe@example.com,192.168.1.1,some notes
 2,Jane Smith,jane.smith@example.net,10.0.0.2,more data`
 
 	var buf bytes.Buffer
-	err := pkg.Start("csv", 2, strings.NewReader(input), &buf, pkg.Hashed(salt), nil, nil)
+	err := pkg.Start("csv", 2, strings.NewReader(input), &buf, pkg.Deterministic(salt), nil, nil)
 	require.NoError(t, err)
 
 	output := buf.String()
@@ -55,7 +55,7 @@ func TestCSVProcessing_WithInclude(t *testing.T) {
 	include := []string{"email", "ip_address"}
 
 	var buf bytes.Buffer
-	err := pkg.Start("csv", 2, strings.NewReader(input), &buf, pkg.Hashed(salt), include, nil)
+	err := pkg.Start("csv", 2, strings.NewReader(input), &buf, pkg.Deterministic(salt), include, nil)
 	require.NoError(t, err)
 
 	output := buf.String()
@@ -92,7 +92,7 @@ func TestCSVProcessing_WithExclude(t *testing.T) {
 	exclude := []string{"id", "notes"}
 
 	var buf bytes.Buffer
-	err := pkg.Start("csv", 2, strings.NewReader(input), &buf, pkg.Hashed(salt), nil, exclude)
+	err := pkg.Start("csv", 2, strings.NewReader(input), &buf, pkg.Deterministic(salt), nil, exclude)
 	require.NoError(t, err)
 
 	output := buf.String()
