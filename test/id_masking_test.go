@@ -69,6 +69,46 @@ func TestIDMaskingAndFormatValidation(t *testing.T) {
 			},
 			shouldMatch: true,
 		},
+		{
+			name:  "International Phone Number",
+			input: map[string]string{"id": "+1 212-555-0123"},
+			validator: func(t *testing.T, outputValue string) {
+				assert.NotEmpty(t, outputValue, "Masked phone number should not be empty")
+			},
+			shouldMatch: true,
+		},
+		{
+			name:  "Credit Card Number",
+			input: map[string]string{"id": "4992-7398-716-1234"},
+			validator: func(t *testing.T, outputValue string) {
+				assert.Regexp(t, `^[\d-]{13,19}$`, outputValue, "Masked credit card should have a plausible format")
+			},
+			shouldMatch: true,
+		},
+		{
+			name:  "IBAN",
+			input: map[string]string{"id": "DE89 3704 0044 0532 0130 00"},
+			validator: func(t *testing.T, outputValue string) {
+				assert.Regexp(t, `[A-Z]{2}\d{2}[A-Z\d]{4}\d{7,12}`, outputValue, "Masked IBAN should have a plausible format")
+			},
+			shouldMatch: true,
+		},
+		{
+			name:  "Currency USD",
+			input: map[string]string{"id": "$ 123,456.78"},
+			validator: func(t *testing.T, outputValue string) {
+				assert.Contains(t, outputValue, "$", "Masked currency should retain symbol")
+			},
+			shouldMatch: true,
+		},
+		{
+			name:  "Currency EUR",
+			input: map[string]string{"id": "EUR 99.99"},
+			validator: func(t *testing.T, outputValue string) {
+				assert.Contains(t, outputValue, "EUR", "Masked currency should retain symbol")
+			},
+			shouldMatch: true,
+		},
 	}
 
 	for _, tc := range testCases {

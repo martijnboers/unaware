@@ -19,8 +19,12 @@ import (
 	"github.com/brianvoe/gofakeit/v6"
 	"github.com/dgraph-io/ristretto"
 	"github.com/google/uuid"
+	"github.com/nyaruka/phonenumbers"
+	"github.com/theplant/luhn"
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
+
+	"github.com/jacoelho/banking/iban"
 )
 
 // AppConfig holds the complete configuration for a masking operation.
@@ -156,9 +160,11 @@ type masker struct {
 	cache        *ristretto.Cache
 	dateLayouts  []string
 	emailRegex   *regexp.Regexp
-	numLikeRegex *regexp.Regexp
-	ulidRegex    *regexp.Regexp
-	ksuidRegex   *regexp.Regexp
+	numLikeRegex    *regexp.Regexp
+	ulidRegex       *regexp.Regexp
+	ksuidRegex      *regexp.Regexp
+	creditCardRegex *regexp.Regexp
+	currencyRegex   *regexp.Regexp
 }
 
 func newMasker(config MaskerConfig) *masker {
@@ -175,8 +181,10 @@ func newMasker(config MaskerConfig) *masker {
 		},
 		emailRegex:   regexp.MustCompile(`^[^@\s]+@[^@\s]+\.[^@\s]+$`),
 		numLikeRegex: regexp.MustCompile(`^[\d\s-]+$`),
-		ulidRegex:    regexp.MustCompile(`(?i)^[0-7][0-9a-hjkmnp-tv-z]{25}$`),
-		ksuidRegex:   regexp.MustCompile(`^[a-zA-Z0-9]{27}$`),
+		ulidRegex:       regexp.MustCompile(`(?i)^[0-7][0-9a-hjkmnp-tv-z]{25}$`),
+		ksuidRegex:      regexp.MustCompile(`^[a-zA-Z0-9]{27}$`),
+		creditCardRegex: regexp.MustCompile(`^(?:\d[ -]*?){13,16}$`),
+		currencyRegex:   regexp.MustCompile(`^(\$|€|£|USD|EUR|GBP)\s*(\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{2})?)$`),
 	}
 
 	switch config.Method {
@@ -257,6 +265,28 @@ func (m *masker) maskUncached(value any) any {
 		}
 		if _, err := uuid.Parse(s); err == nil {
 			return m.faker.UUID()
+		}
+		if err := iban.Validate(strings.ReplaceAll(s, " ", "")); err == nil {
+			// Generate a fake IBAN that looks plausible
+			return m.faker.Regex(`[A-Z]{2}\d{2}[A-Z\d]{4}\d{7,12}`)
+		}
+		if m.creditCardRegex.MatchString(s) {
+			// Clean the string of any separators before Luhn check
+			if num, err := strconv.Atoi(strings.ReplaceAll(strings.ReplaceAll(s, " ", ""), "-", "")); err == nil && luhn.Valid(num) {
+				return m.faker.CreditCardNumber(nil)
+			}
+		}
+		if _, err := phonenumbers.Parse(s, ""); err == nil {
+			return m.faker.Phone()
+		}
+		if m.currencyRegex.MatchString(s) {
+			matches := m.currencyRegex.FindStringSubmatch(s)
+			if len(matches) == 3 {
+				currencySymbol := matches[1]
+				// Generate a new random amount
+				newAmount := fmt.Sprintf("%.2f", m.faker.Price(0, 1000))
+				return currencySymbol + " " + newAmount
+			}
 		}
 		if m.ulidRegex.MatchString(s) {
 			return m.faker.Regex(`[0-7][0-9A-HJKMNP-TV-Z]{25}`)
