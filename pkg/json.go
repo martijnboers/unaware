@@ -180,7 +180,7 @@ func isWhitespace(c byte) bool { return c == ' ' || c == '\n' || c == '\r' || c 
 func (jp *jsonProcessor) recursiveMask(m *masker, key string, data any) any {
 	switch v := data.(type) {
 	case json.Number:
-		if shouldMask(key, jp.config.Include, jp.config.Exclude) {
+		if shouldMask(key, jp.config.IncludeGlobs, jp.config.ExcludeGlobs) {
 			s := v.String()
 			if strings.Contains(s, ".") {
 				parts := strings.Split(s, ".")
@@ -191,7 +191,7 @@ func (jp *jsonProcessor) recursiveMask(m *masker, key string, data any) any {
 		}
 		return v
 	case string, bool, nil:
-		if shouldMask(key, jp.config.Include, jp.config.Exclude) {
+		if shouldMask(key, jp.config.IncludeGlobs, jp.config.ExcludeGlobs) {
 			return m.mask(v)
 		}
 		return v

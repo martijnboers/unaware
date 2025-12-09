@@ -75,7 +75,7 @@ func TestFilteringScenarios(t *testing.T) {
 			name:    "JSON - Exclude Only (Blacklist)",
 			format:  "json",
 			input:   jsonInput,
-			exclude: []string{"*.id", "*.ip_address"},
+			exclude: []string{"**.id", "**.ip_address"},
 			expected: []string{
 				`"id": "user-123"`,
 				`"ip_address": "203.0.113.195"`,
@@ -84,8 +84,7 @@ func TestFilteringScenarios(t *testing.T) {
 			},
 		},
 		{
-			name:    "JSON - Include Only (Whitelist)",
-			format:  "json",
+			name: "JSON - Include Only (Whitelist)", format: "json",
 			input:   jsonInput,
 			include: []string{"user.personal.*"},
 			expected: []string{
