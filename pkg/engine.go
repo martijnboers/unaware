@@ -9,32 +9,34 @@ import (
 	"io"
 	"net"
 	"net/url"
-	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/araddon/dateparse"
 	"github.com/brianvoe/gofakeit/v6"
 	"github.com/dgraph-io/ristretto"
+	"github.com/gobwas/glob"
 	"github.com/google/uuid"
+	"github.com/jacoelho/banking/iban"
 	"github.com/nyaruka/phonenumbers"
 	"github.com/theplant/luhn"
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
 
-	"github.com/jacoelho/banking/iban"
+	"github.com/araddon/dateparse"
 )
 
 // AppConfig holds the complete configuration for a masking operation.
 type AppConfig struct {
-	Format   string
-	CPUCount int
-	Include  []string
-	Exclude  []string
-	FirstN   int
-	Masker   MaskerConfig
+	Format       string   `json:"format"`
+	CPUCount     int      `json:"cpu_count"`
+	Include      []string `json:"include"`
+	Exclude      []string `json:"exclude"`
+	FirstN       int      `json:"first_n"`
+	Masker       MaskerConfig
+	IncludeGlobs []glob.Glob `json:"-"`
+	ExcludeGlobs []glob.Glob `json:"-"`
 }
 
 type processor interface {
@@ -57,6 +59,23 @@ type MaskerConfig struct {
 
 // Start initiates the masking process based on the provided configuration.
 func Start(r io.Reader, w io.Writer, config AppConfig) error {
+	// Pre-compile glob patterns once at startup for performance during masking.
+	// This avoids re-parsing the patterns for every key in the input data.
+	for _, pattern := range config.Include {
+		g, err := glob.Compile(pattern, '.')
+		if err != nil {
+			return fmt.Errorf("invalid include pattern %q: %w", pattern, err)
+		}
+		config.IncludeGlobs = append(config.IncludeGlobs, g)
+	}
+	for _, pattern := range config.Exclude {
+		g, err := glob.Compile(pattern, '.')
+		if err != nil {
+			return fmt.Errorf("invalid exclude pattern %q: %w", pattern, err)
+		}
+		config.ExcludeGlobs = append(config.ExcludeGlobs, g)
+	}
+
 	var p processor
 	switch config.Format {
 	case "json":
@@ -74,17 +93,17 @@ func Start(r io.Reader, w io.Writer, config AppConfig) error {
 	return p.Process(r, w)
 }
 
-func shouldMask(key string, include, exclude []string) bool {
+func shouldMask(key string, include, exclude []glob.Glob) bool {
 	if len(exclude) > 0 {
-		for _, pattern := range exclude {
-			if matched, _ := filepath.Match(pattern, key); matched {
+		for _, g := range exclude {
+			if g.Match(key) {
 				return false
 			}
 		}
 	}
 	if len(include) > 0 {
-		for _, pattern := range include {
-			if matched, _ := filepath.Match(pattern, key); matched {
+		for _, g := range include {
+			if g.Match(key) {
 				return true
 			}
 		}
@@ -155,11 +174,11 @@ func newConcurrentRunner(methodFactory func() *masker, config AppConfig) *concur
 }
 
 type masker struct {
-	faker        *gofakeit.Faker
-	seeder       seeder
-	cache        *ristretto.Cache
-	dateLayouts  []string
-	emailRegex   *regexp.Regexp
+	faker           *gofakeit.Faker
+	seeder          seeder
+	cache           *ristretto.Cache
+	dateLayouts     []string
+	emailRegex      *regexp.Regexp
 	numLikeRegex    *regexp.Regexp
 	ulidRegex       *regexp.Regexp
 	ksuidRegex      *regexp.Regexp
@@ -179,8 +198,8 @@ func newMasker(config MaskerConfig) *masker {
 			"01/02/2006",
 			time.RFC1123,
 		},
-		emailRegex:   regexp.MustCompile(`^[^@\s]+@[^@\s]+\.[^@\s]+$`),
-		numLikeRegex: regexp.MustCompile(`^[\d\s-]+$`),
+		emailRegex:      regexp.MustCompile(`^[^@\s]+@[^@\s]+\.[^@\s]+$`),
+		numLikeRegex:    regexp.MustCompile(`^[\d\s-]+$`),
 		ulidRegex:       regexp.MustCompile(`(?i)^[0-7][0-9a-hjkmnp-tv-z]{25}$`),
 		ksuidRegex:      regexp.MustCompile(`^[a-zA-Z0-9]{27}$`),
 		creditCardRegex: regexp.MustCompile(`^(?:\d[ -]*?){13,16}$`),

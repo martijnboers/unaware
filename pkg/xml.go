@@ -262,7 +262,7 @@ func (xp *xmlProcessor) processSerially(decoder *xml.Decoder, w io.Writer) error
 			for i := range startElem.Attr {
 				attr := &startElem.Attr[i]
 				fullKey := strings.Join(path, ".") + "." + attr.Name.Local
-				if shouldMask(fullKey, xp.config.Include, xp.config.Exclude) {
+				if shouldMask(fullKey, xp.config.IncludeGlobs, xp.config.ExcludeGlobs) {
 					maskedValue := serialMasker.mask(attr.Value)
 					attr.Value = fmt.Sprintf("%v", maskedValue)
 				}
@@ -274,7 +274,7 @@ func (xp *xmlProcessor) processSerially(decoder *xml.Decoder, w io.Writer) error
 			trimmedData := strings.TrimSpace(string(se))
 			if len(trimmedData) > 0 {
 				fullKey := strings.Join(path, ".")
-				if shouldMask(fullKey, xp.config.Include, xp.config.Exclude) {
+				if shouldMask(fullKey, xp.config.IncludeGlobs, xp.config.ExcludeGlobs) {
 					maskedValue := serialMasker.mask(trimmedData)
 					maskedString := fmt.Sprintf("%v", maskedValue)
 					if err := encoder.EncodeToken(xml.CharData(maskedString)); err != nil {

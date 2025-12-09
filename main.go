@@ -33,8 +33,9 @@ func main() {
 		fmt.Fprintf(out, "  unaware -format json -in input.json -out masked.json\n\n")
 		fmt.Fprintf(out, "  # Mask a CSV file, keeping the output consistent between runs\n")
 		fmt.Fprintf(out, "  STATIC_SALT=secret-key unaware -format csv -method deterministic -in data.csv > data_masked.csv\n\n")
-		fmt.Fprintf(out, "  # Mask only email fields in a large JSON file\n")
-		fmt.Fprintf(out, "  cat users.json | unaware -format json -include \"*.email\" > masked.json\n\n")
+		fmt.Fprintf(out, "  # Mask only email fields (using a glob pattern) in a large JSON file\n")
+		fmt.Fprintf(out, "  # Use \"**\" to match across multiple nested levels (e.g., \"**.email\")\n")
+		fmt.Fprintf(out, "  cat users.json | unaware -format json -include \"**.email\" > masked.json\n\n")
 		fmt.Fprintf(out, "FLAGS:\n")
 		flag.PrintDefaults()
 	}

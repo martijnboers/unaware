@@ -97,7 +97,7 @@ func (cr *concurrentRunner) worker(wg *sync.WaitGroup, jobs <-chan job, results 
 func (cr *concurrentRunner) recursiveMask(m *masker, key string, data any) any {
 	switch v := data.(type) {
 	case json.Number, string, bool, nil:
-		if shouldMask(key, cr.config.Include, cr.config.Exclude) {
+		if shouldMask(key, cr.config.IncludeGlobs, cr.config.ExcludeGlobs) {
 			return m.mask(v)
 		}
 		return v
@@ -107,7 +107,7 @@ func (cr *concurrentRunner) recursiveMask(m *masker, key string, data any) any {
 			if k == "#text" {
 				// This is the text content of the parent element (e.g., the "2002" in <year>2002</year>).
 				// The key for filtering is the parent's key, which is already in the 'key' variable.
-				if shouldMask(key, cr.config.Include, cr.config.Exclude) {
+				if shouldMask(key, cr.config.IncludeGlobs, cr.config.ExcludeGlobs) {
 					maskedMap[k] = m.mask(value)
 				} else {
 					maskedMap[k] = value
@@ -131,7 +131,7 @@ func (cr *concurrentRunner) recursiveMask(m *masker, key string, data any) any {
 		}
 		return maskedSlice
 	default:
-		if shouldMask(key, cr.config.Include, cr.config.Exclude) {
+		if shouldMask(key, cr.config.IncludeGlobs, cr.config.ExcludeGlobs) {
 			return m.mask(v)
 		}
 		return v
