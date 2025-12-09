@@ -18,6 +18,7 @@ import (
 	"github.com/araddon/dateparse"
 	"github.com/brianvoe/gofakeit/v6"
 	"github.com/dgraph-io/ristretto"
+	"github.com/google/uuid"
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
 )
@@ -156,6 +157,8 @@ type masker struct {
 	dateLayouts  []string
 	emailRegex   *regexp.Regexp
 	numLikeRegex *regexp.Regexp
+	ulidRegex    *regexp.Regexp
+	ksuidRegex   *regexp.Regexp
 }
 
 func newMasker(config MaskerConfig) *masker {
@@ -172,6 +175,8 @@ func newMasker(config MaskerConfig) *masker {
 		},
 		emailRegex:   regexp.MustCompile(`^[^@\s]+@[^@\s]+\.[^@\s]+$`),
 		numLikeRegex: regexp.MustCompile(`^[\d\s-]+$`),
+		ulidRegex:    regexp.MustCompile(`(?i)^[0-7][0-9a-hjkmnp-tv-z]{25}$`),
+		ksuidRegex:   regexp.MustCompile(`^[a-zA-Z0-9]{27}$`),
 	}
 
 	switch config.Method {
@@ -232,6 +237,16 @@ func (m *masker) getCacheKey(value any) string {
 		return "" // Should not happen for supported types
 	}
 }
+func (m *masker) generateAlphanumericN(n int) string {
+	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	b := make([]byte, n)
+	for i := range b {
+		b[i] = charset[m.faker.Rand.Intn(len(charset))]
+	}
+	generated := string(b)
+	return generated
+}
+
 func (m *masker) maskUncached(value any) any {
 	m.seeder.SeedFaker(m.faker, value)
 	switch v := value.(type) {
@@ -239,6 +254,15 @@ func (m *masker) maskUncached(value any) any {
 		s := v
 		if strings.TrimSpace(s) == "" {
 			return s
+		}
+		if _, err := uuid.Parse(s); err == nil {
+			return m.faker.UUID()
+		}
+		if m.ulidRegex.MatchString(s) {
+			return m.faker.Regex(`[0-7][0-9A-HJKMNP-TV-Z]{25}`)
+		}
+		if m.ksuidRegex.MatchString(s) {
+			return m.generateAlphanumericN(27)
 		}
 		if _, err := url.ParseRequestURI(s); err == nil {
 			return m.faker.URL()
