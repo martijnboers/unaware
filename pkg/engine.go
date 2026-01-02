@@ -27,6 +27,8 @@ import (
 	"github.com/araddon/dateparse"
 )
 
+var Now = time.Now
+
 // AppConfig holds the complete configuration for a masking operation.
 type AppConfig struct {
 	Format       string   `json:"format"`
@@ -346,7 +348,7 @@ func (m *masker) maskUncached(value any) any {
 		}
 		for _, layout := range m.dateLayouts {
 			if _, err := time.Parse(layout, s); err == nil {
-				return m.faker.Date().Format(layout)
+				return m.faker.DateRange(Now().AddDate(-5, 0, 0), Now()).Format(layout)
 			}
 		}
 		if m.numLikeRegex.MatchString(s) {
@@ -361,7 +363,7 @@ func (m *masker) maskUncached(value any) any {
 			return result.String()
 		}
 		if _, err := dateparse.ParseAny(s); err == nil {
-			return m.faker.Date().Format(time.RFC3339)
+			return m.faker.DateRange(Now().AddDate(-5, 0, 0), Now()).Format(time.RFC3339)
 		}
 		words := strings.Split(s, " ")
 		maskedWords := make([]string, len(words))

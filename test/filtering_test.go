@@ -4,10 +4,17 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"unaware/pkg"
 )
+
+func init() {
+	pkg.Now = func() time.Time {
+		return time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	}
+}
 
 func TestFilteringScenarios(t *testing.T) {
 	deterministicMaskerConfig := pkg.MaskerConfig{
@@ -62,7 +69,7 @@ func TestFilteringScenarios(t *testing.T) {
 				`"id": "chapter"`,
 				`"name": "Cute His"`,
 				`"email": "clevelandsenger@sawayn.io"`,
-				`"last_login": "1945-09-30T19:45:32Z"`,
+				`"last_login": "2023-01-26T11:37:04Z"`,
 				`"ip_address": "113.186.161.194"`,
 				`"transaction_id": "without"`,
 			},
@@ -116,8 +123,7 @@ func TestFilteringScenarios(t *testing.T) {
 				`<user id="constantly">`,
 				`<name>Finally His</name>`,
 				`<email>alfredofritsch@dickinson.net</email>`,
-				`<last_login>2001-03-07T14:59:55Z</last_login>`,
-				`<ip_address>238.108.102.226</ip_address>`,
+				`<last_login>2023-01-13T21:11:17Z</last_login>`, `<ip_address>238.108.102.226</ip_address>`,
 				`<transaction_id>her</transaction_id>`,
 			},
 		},
@@ -139,7 +145,7 @@ func TestFilteringScenarios(t *testing.T) {
 			include: []string{"root.user.metadata.*"},
 			expected: []string{
 				`<name>Jane Doe</name>`,
-				`<last_login>2001-03-07T14:59:55Z</last_login>`,
+				`<last_login>2023-01-13T21:11:17Z</last_login>`,
 				`<ip_address>238.108.102.226</ip_address>`,
 			},
 		},
