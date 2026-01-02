@@ -8,7 +8,7 @@ require (
 	github.com/dgraph-io/ristretto v0.2.0
 	github.com/gobwas/glob v0.2.3
 	github.com/google/uuid v1.6.0
-	github.com/jacoelho/banking v1.9.0
+	github.com/jacoelho/banking v1.9.1
 	github.com/nyaruka/phonenumbers v1.6.7
 	github.com/schollz/progressbar/v3 v3.19.0
 	github.com/stretchr/testify v1.11.1
