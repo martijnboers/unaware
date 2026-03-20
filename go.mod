@@ -9,7 +9,7 @@ require (
 	github.com/gobwas/glob v0.2.3
 	github.com/google/uuid v1.6.0
 	github.com/jacoelho/banking v1.9.1
-	github.com/nyaruka/phonenumbers v1.6.10
+	github.com/nyaruka/phonenumbers v1.6.12
 	github.com/schollz/progressbar/v3 v3.19.0
 	github.com/stretchr/testify v1.11.1
 	github.com/theplant/luhn v0.0.0-20170224032821-81a1a381387a
